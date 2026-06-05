@@ -1,0 +1,32 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+type Props = {
+  defaultValue?: string;
+};
+
+export function SearchBar({ defaultValue = "" }: Props) {
+  const router = useRouter();
+  const [keyword, setKeyword] = useState(defaultValue);
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    router.push(`/search?keyword=${encodeURIComponent(keyword)}`);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 md:flex-row">
+      <input
+        value={keyword}
+        onChange={(event) => setKeyword(event.target.value)}
+        placeholder="请输入商品关键词，例如：防晒、面膜、唇釉、卸妆油"
+        className="min-h-[54px] flex-1 rounded-full border border-black/10 bg-white/80 px-5 text-base outline-none transition focus:border-black/30"
+      />
+      <button type="submit" className="cta">
+        搜索商品
+      </button>
+    </form>
+  );
+}
