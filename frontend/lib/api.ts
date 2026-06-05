@@ -2,10 +2,25 @@ import { mockCart, mockOrders, mockProducts, type CartDisplayItem, type CartEntr
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+export type ProductSearchResult = {
+  keywordOriginal: string;
+  keywordKo: string;
+  count: number;
+  items: Product[];
+};
+
+export type CrawlerSyncResult = {
+  taskId: string;
+  status: string;
+  keyword: string;
+  count: number;
+  source: string;
+};
+
 async function safeFetch<T>(path: string, fallback: T): Promise<T> {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
-      next: { revalidate: 30 }
+      cache: "no-store"
     });
     if (!response.ok) {
       return fallback;
@@ -70,7 +85,27 @@ function normalizeCartEntry(payload: any): CartEntry {
   };
 }
 
-export async function searchProducts(keyword: string): Promise<Product[]> {
+function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductSearchResult {
+  const items = Array.isArray(payload.items) ? payload.items.map(normalizeProduct) : fallbackItems;
+  return {
+    keywordOriginal: payload.keywordOriginal ?? payload.keyword_original ?? "",
+    keywordKo: payload.keywordKo ?? payload.keyword_ko ?? "",
+    count: payload.count ?? items.length,
+    items
+  };
+}
+
+function normalizeCrawlerSyncResult(payload: any): CrawlerSyncResult {
+  return {
+    taskId: payload.taskId ?? payload.task_id,
+    status: payload.status,
+    keyword: payload.keyword,
+    count: payload.count ?? 0,
+    source: payload.source ?? ""
+  };
+}
+
+export async function searchProductResults(keyword: string): Promise<ProductSearchResult> {
   const normalized = keyword.trim().toLowerCase();
   const fallback = !normalized
     ? mockProducts
@@ -78,11 +113,32 @@ export async function searchProducts(keyword: string): Promise<Product[]> {
         [product.titleZh, product.titleKo, product.brandZh, product.categoryZh].join(" ").toLowerCase().includes(normalized)
       );
 
-  const data = await safeFetch<{ items: any[] }>(
+  const data = await safeFetch<any>(
     `/api/products/search?keyword=${encodeURIComponent(keyword)}`,
-    { items: fallback }
+    {
+      keyword_original: keyword,
+      keyword_ko: keyword,
+      count: fallback.length,
+      items: fallback
+    }
   );
-  return data.items.map(normalizeProduct);
+  return normalizeSearchResult(data, fallback);
+}
+
+export async function searchProducts(keyword: string): Promise<Product[]> {
+  const result = await searchProductResults(keyword);
+  return result.items;
+}
+
+export async function syncOliveYoungProducts(keyword: string, limit = 24): Promise<CrawlerSyncResult> {
+  const result = await authFetch<any>("/api/crawler/oliveyoung/sync", {
+    method: "POST",
+    body: JSON.stringify({
+      keyword,
+      limit
+    })
+  });
+  return normalizeCrawlerSyncResult(result);
 }
 
 export async function getProduct(id: string): Promise<Product | null> {
@@ -193,10 +249,10 @@ export async function getCartItems(token: string): Promise<CartDisplayItem[]> {
     }
   });
 
-  return result
-    .map(normalizeCartEntry)
-    .map((entry) => {
-      const product = mockProducts.find((item) => item.id === entry.productId);
+  const entries = result.map(normalizeCartEntry);
+  const displayItems = await Promise.all(
+    entries.map(async (entry) => {
+      const product = await getProduct(entry.productId);
       if (!product) {
         return null;
       }
@@ -205,7 +261,9 @@ export async function getCartItems(token: string): Promise<CartDisplayItem[]> {
         product
       };
     })
-    .filter((item): item is CartDisplayItem => item !== null);
+  );
+
+  return displayItems.filter((item): item is CartDisplayItem => item !== null);
 }
 
 export async function deleteCartItem(token: string, cartItemId: string): Promise<void> {

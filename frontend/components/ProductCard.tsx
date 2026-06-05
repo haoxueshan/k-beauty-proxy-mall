@@ -25,7 +25,7 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
           <p className="text-sm subtle">韩元价 KRW {product.salePriceKrw.toLocaleString()}</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Link href={`/products/${product.id}`} className="cta ghost">
             查看详情
           </Link>

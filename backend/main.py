@@ -125,6 +125,8 @@ def crawler_sync(payload: CrawlerSyncRequest) -> CrawlerSyncResponse:
         task_id=str(uuid4()),
         status=f"success:{source}:{count}",
         keyword=payload.keyword,
+        count=count,
+        source=source,
     )
 
 

@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - dependency is optional until installed
 DEFAULT_OPENAI_TRANSLATION_MODEL = "gpt-4o-mini"
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
 CODE_BLOCK_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
-_translation_cache: dict[tuple[str, str, str], str] = {}
+_translation_cache: dict[tuple[str, str, str], tuple[str, str | None]] = {}
 
 
 @dataclass(frozen=True)
@@ -154,13 +154,18 @@ def translate_texts(
         return TranslationBatchResult(translations=[], provider="fallback")
 
     cached_or_fallback = list(normalized_fallbacks)
+    cached_count = 0
+    cached_model: str | None = None
     pending_indices: list[int] = []
     pending_texts: list[str] = []
 
     for index, text in enumerate(normalized_texts):
         cache_key = (source_language, target_language, text)
         if cache_key in _translation_cache:
-            cached_or_fallback[index] = _translation_cache[cache_key]
+            cached_text, model = _translation_cache[cache_key]
+            cached_or_fallback[index] = cached_text
+            cached_count += 1
+            cached_model = cached_model or model
             continue
         if not _should_translate_with_llm(text):
             continue
@@ -168,7 +173,8 @@ def translate_texts(
         pending_texts.append(text)
 
     if not pending_texts or not is_openai_translation_enabled():
-        return TranslationBatchResult(translations=cached_or_fallback, provider="fallback")
+        provider = "cache" if cached_count else "fallback"
+        return TranslationBatchResult(translations=cached_or_fallback, provider=provider, model=cached_model)
 
     try:
         batch_result = _request_openai_translations(pending_texts, source_language, target_language)
@@ -177,7 +183,7 @@ def translate_texts(
 
     for index, translated_text in zip(pending_indices, batch_result.translations):
         cache_key = (source_language, target_language, normalized_texts[index])
-        _translation_cache[cache_key] = translated_text
+        _translation_cache[cache_key] = (translated_text, batch_result.model)
         cached_or_fallback[index] = translated_text
 
     return TranslationBatchResult(

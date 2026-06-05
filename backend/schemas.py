@@ -39,6 +39,8 @@ class CrawlerSyncResponse(BaseModel):
     task_id: str
     status: str
     keyword: str
+    count: int = 0
+    source: str = ""
 
 
 class CartItemCreate(BaseModel):

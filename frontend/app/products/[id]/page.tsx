@@ -10,7 +10,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
       <div className="container pb-16">
         <div className="panel p-8">
           <h1 className="text-2xl font-semibold">商品不存在</h1>
-          <p className="subtle mt-2">当前详情页先基于 mock 数据和后端骨架演示。</p>
+          <p className="subtle mt-2">请返回搜索页重新同步或选择其他商品。</p>
         </div>
       </div>
     );
@@ -44,7 +44,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
 
           <div className="mt-8 space-y-4">
             <div>
-              <h2 className="text-lg font-semibold">AI 商品摘要</h2>
+              <h2 className="text-lg font-semibold">商品摘要</h2>
               <p className="subtle mt-2 leading-7">{product.aiSummary}</p>
             </div>
             <div>

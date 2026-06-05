@@ -56,12 +56,13 @@ export function CartClient() {
     <AuthGate title="登录后使用代购购物车" description="购物车、下单和后续订单追踪需要先绑定到你的账号。">
       {isLoading ? (
         <div className="panel mt-8 p-8">
-          <p className="text-lg font-semibold">正在加载购物车…</p>
+          <p className="text-lg font-semibold">正在加载购物车...</p>
         </div>
       ) : items.length === 0 ? (
         <div className="panel mt-8 p-8">
-          <p className="text-lg font-semibold">购物车还是空的</p>
-          <p className="subtle mt-2">先去搜索页挑几个 Olive Young 商品吧。</p>
+          {error ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+          <p className="mt-4 text-lg font-semibold">购物车还是空的</p>
+          <p className="subtle mt-2">先去搜索页同步并挑选几个 Olive Young 商品吧。</p>
           <Link href="/search" className="cta mt-6 inline-flex">
             去搜索商品
           </Link>
@@ -95,12 +96,12 @@ export function CartClient() {
                 <span>{items.length} 件</span>
               </div>
               <div className="flex justify-between">
-                <span>人工确认后可能调整</span>
-                <span>以最终报价为准</span>
+                <span>最终金额</span>
+                <span>人工确认后报价</span>
               </div>
             </div>
             <Link href="/orders" className="cta mt-6 w-full">
-              去查看订单
+              查看订单
             </Link>
           </aside>
         </section>
