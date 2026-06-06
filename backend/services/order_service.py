@@ -159,6 +159,34 @@ def delete_cart_item(user_id: str, cart_item_id: str) -> bool:
     return bool(deleted_rows)
 
 
+def delete_order(user_id: str, order_id: str) -> bool:
+    existing_rows = select_rows(
+        "orders",
+        columns="id",
+        filters={
+            "id": f"eq.{order_id}",
+            "user_id": f"eq.{user_id}",
+        },
+        limit=1,
+    )
+    if not existing_rows:
+        return False
+
+    # Keep related operational tables tidy even when the database has no FK cascade.
+    delete_rows("order_items", filters={"order_id": f"eq.{order_id}"})
+    delete_rows("purchase_records", filters={"order_id": f"eq.{order_id}"})
+    delete_rows("logistics", filters={"order_id": f"eq.{order_id}"})
+
+    deleted_rows = delete_rows(
+        "orders",
+        filters={
+            "id": f"eq.{order_id}",
+            "user_id": f"eq.{user_id}",
+        },
+    )
+    return bool(deleted_rows)
+
+
 def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Product], user_id: str) -> Order:
     order_id = str(uuid4())
     order_no = f"OY{datetime.now():%Y%m%d}{uuid4().hex[:6].upper()}"
