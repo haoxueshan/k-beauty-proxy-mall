@@ -52,6 +52,8 @@ uvicorn main:app --reload
 
 Detailed setup notes: `docs/SUPABASE_SETUP.md`
 
+Deployment notes for Alibaba Cloud ECS + BaoTa Panel: `docs/BAOTA_DEPLOY.md`
+
 ## Translation module
 
 - Backend translation service: [backend/services/llm_translate_service.py](C:/Users/Administrator/Desktop/demo/backend/services/llm_translate_service.py)

@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import uuid4
 
-from db.supabase_client import delete_rows, insert_rows, select_rows
-from schemas import CartItem, Order, OrderCreate, Product
+from db.supabase_client import delete_rows, insert_rows, select_rows, update_rows
+from schemas import CartItem, Order, OrderCreate, OrderItemSummary, Product
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -13,18 +13,57 @@ def list_orders(user_id: str | None = None) -> list[Order]:
     filters = {"user_id": f"eq.{user_id}"} if user_id else None
     rows = select_rows(
         "orders",
-        columns="id,user_id,order_no,status,total_amount_cny,receiver_name,created_at",
+        columns=(
+            "id,user_id,order_no,status,product_total_cny,service_fee_cny,"
+            "international_shipping_fee_cny,package_fee_cny,total_amount_cny,paid_amount_cny,"
+            "receiver_name,receiver_phone,receiver_address,user_note,admin_note,created_at"
+        ),
         filters=filters,
         order="created_at.desc",
     )
+    order_ids = [row["id"] for row in rows]
+    order_items_by_order: dict[str, list[OrderItemSummary]] = {}
+
+    if order_ids:
+        in_clause = ",".join(order_ids)
+        item_rows = select_rows(
+            "order_items",
+            columns="id,order_id,product_id,source_url,title_zh,title_ko,selected_option,quantity,unit_price_cny,subtotal_cny",
+            filters={"order_id": f"in.({in_clause})"},
+        )
+        for row in item_rows:
+            order_items_by_order.setdefault(row["order_id"], []).append(
+                OrderItemSummary(
+                    id=row["id"],
+                    product_id=row["product_id"],
+                    source_url=row.get("source_url"),
+                    title_zh=row.get("title_zh") or "",
+                    title_ko=row.get("title_ko") or "",
+                    selected_option=row.get("selected_option"),
+                    quantity=int(row.get("quantity") or 1),
+                    unit_price_cny=float(row.get("unit_price_cny") or 0),
+                    subtotal_cny=float(row.get("subtotal_cny") or 0),
+                )
+            )
+
     return [
         Order(
             id=row["id"],
             user_id=row["user_id"],
             order_no=row["order_no"],
             status=row["status"],
-            total_amount_cny=float(row["total_amount_cny"] or 0),
+            product_total_cny=float(row.get("product_total_cny") or 0),
+            service_fee_cny=float(row.get("service_fee_cny") or 0),
+            international_shipping_fee_cny=float(row.get("international_shipping_fee_cny") or 0),
+            package_fee_cny=float(row.get("package_fee_cny") or 0),
+            total_amount_cny=float(row.get("total_amount_cny") or 0),
+            paid_amount_cny=float(row.get("paid_amount_cny") or 0),
             receiver_name=row["receiver_name"],
+            receiver_phone=row.get("receiver_phone"),
+            receiver_address=row.get("receiver_address"),
+            user_note=row.get("user_note"),
+            admin_note=row.get("admin_note"),
+            items=order_items_by_order.get(row["id"], []),
             created_at=_parse_datetime(row["created_at"]),
         )
         for row in rows
@@ -66,6 +105,33 @@ def list_cart_items(user_id: str) -> list[CartItem]:
         )
         for row in rows
     ]
+
+
+def update_cart_item(user_id: str, cart_item_id: str, quantity: int, note: str | None) -> CartItem | None:
+    rows = update_rows(
+        "cart_items",
+        filters={
+            "user_id": f"eq.{user_id}",
+            "id": f"eq.{cart_item_id}",
+        },
+        payload={
+            "quantity": quantity,
+            "note": note,
+        },
+    )
+    if not rows:
+        return None
+
+    row = rows[0]
+    return CartItem(
+        id=row["id"],
+        user_id=row["user_id"],
+        product_id=row["product_id"],
+        quantity=int(row.get("quantity") or 1),
+        selected_option=row.get("selected_option"),
+        note=row.get("note"),
+        created_at=_parse_datetime(row["created_at"]),
+    )
 
 
 def get_cart_items(user_id: str, cart_item_ids: list[str]) -> list[dict]:
@@ -124,32 +190,36 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
             }
         )
 
-    if not order_items_payload and products:
-        fallback_product = products[0]
-        total_amount = round(float(fallback_product.proxy_price_cny), 2)
-        order_items_payload.append(
-            {
-                "id": str(uuid4()),
-                "order_id": order_id,
-                "product_id": fallback_product.id,
-                "source_url": fallback_product.source_url,
-                "title_zh": fallback_product.title_zh,
-                "title_ko": fallback_product.title_ko,
-                "selected_option": None,
-                "quantity": 1,
-                "unit_price_cny": float(fallback_product.proxy_price_cny),
-                "subtotal_cny": total_amount,
-            }
-        )
-
     total_amount = round(total_amount, 2)
     order = Order(
         id=order_id,
         user_id=user_id,
         order_no=order_no,
         status="pending_quote",
+        product_total_cny=total_amount,
+        service_fee_cny=0,
+        international_shipping_fee_cny=0,
+        package_fee_cny=0,
         total_amount_cny=total_amount,
+        paid_amount_cny=0,
         receiver_name=payload.receiver_name,
+        receiver_phone=payload.receiver_phone,
+        receiver_address=payload.receiver_address,
+        user_note=payload.note,
+        items=[
+            OrderItemSummary(
+                id=item["id"],
+                product_id=item["product_id"],
+                source_url=item.get("source_url"),
+                title_zh=item["title_zh"],
+                title_ko=item["title_ko"],
+                selected_option=item.get("selected_option"),
+                quantity=int(item["quantity"]),
+                unit_price_cny=float(item["unit_price_cny"]),
+                subtotal_cny=float(item["subtotal_cny"]),
+            )
+            for item in order_items_payload
+        ],
         created_at=datetime.now(),
     )
 

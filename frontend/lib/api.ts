@@ -1,4 +1,14 @@
-import { mockCart, mockOrders, mockProducts, type CartDisplayItem, type CartEntry, type Order, type Product, type User } from "@/lib/mock-data";
+import {
+  mockCart,
+  mockOrders,
+  mockProducts,
+  type CartDisplayItem,
+  type CartEntry,
+  type Order,
+  type OrderItem,
+  type Product,
+  type User
+} from "@/lib/mock-data";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -17,6 +27,12 @@ export type CrawlerSyncResult = {
   keyword: string;
   count: number;
   source: string;
+};
+
+export type OrderCreateResult = {
+  orderId: string;
+  orderNo: string;
+  status: string;
 };
 
 async function safeFetch<T>(path: string, fallback: T): Promise<T> {
@@ -65,13 +81,38 @@ function normalizeProduct(payload: any): Product {
 }
 
 function normalizeOrder(payload: any): Order {
+  const items: OrderItem[] = Array.isArray(payload.items)
+    ? payload.items.map((item: any) => ({
+        id: item.id,
+        productId: item.productId ?? item.product_id,
+        sourceUrl: item.sourceUrl ?? item.source_url ?? null,
+        titleZh: item.titleZh ?? item.title_zh ?? "",
+        titleKo: item.titleKo ?? item.title_ko ?? "",
+        selectedOption: item.selectedOption ?? item.selected_option ?? null,
+        quantity: item.quantity ?? 1,
+        unitPriceCny: item.unitPriceCny ?? item.unit_price_cny ?? 0,
+        subtotalCny: item.subtotalCny ?? item.subtotal_cny ?? 0
+      }))
+    : [];
+
   return {
     id: payload.id,
     userId: payload.userId ?? payload.user_id,
     orderNo: payload.orderNo ?? payload.order_no,
     status: payload.status,
+    productTotalCny: payload.productTotalCny ?? payload.product_total_cny ?? payload.totalAmountCny ?? payload.total_amount_cny ?? 0,
+    serviceFeeCny: payload.serviceFeeCny ?? payload.service_fee_cny ?? 0,
+    internationalShippingFeeCny:
+      payload.internationalShippingFeeCny ?? payload.international_shipping_fee_cny ?? 0,
+    packageFeeCny: payload.packageFeeCny ?? payload.package_fee_cny ?? 0,
     totalAmountCny: payload.totalAmountCny ?? payload.total_amount_cny,
+    paidAmountCny: payload.paidAmountCny ?? payload.paid_amount_cny ?? 0,
     receiverName: payload.receiverName ?? payload.receiver_name,
+    receiverPhone: payload.receiverPhone ?? payload.receiver_phone ?? null,
+    receiverAddress: payload.receiverAddress ?? payload.receiver_address ?? null,
+    userNote: payload.userNote ?? payload.user_note ?? null,
+    adminNote: payload.adminNote ?? payload.admin_note ?? null,
+    items,
     createdAt: payload.createdAt ?? payload.created_at
   };
 }
@@ -231,6 +272,24 @@ export async function getMyOrders(token: string): Promise<Order[]> {
   return result.map(normalizeOrder);
 }
 
+export async function updateCartItem(
+  token: string,
+  cartItemId: string,
+  payload: { quantity: number; note?: string | null }
+): Promise<CartEntry> {
+  const result = await authFetch<any>(`/api/cart/items/${cartItemId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      quantity: payload.quantity,
+      note: payload.note ?? null
+    })
+  });
+  return normalizeCartEntry(result);
+}
+
 export async function addCartItem(
   token: string,
   payload: { productId: string; quantity?: number; selectedOption?: string; note?: string }
@@ -284,6 +343,36 @@ export async function deleteCartItem(token: string, cartItemId: string): Promise
       Authorization: `Bearer ${token}`
     }
   });
+}
+
+export async function createOrder(
+  token: string,
+  payload: {
+    cartItemIds: string[];
+    receiverName: string;
+    receiverPhone: string;
+    receiverAddress: string;
+    note?: string;
+  }
+): Promise<OrderCreateResult> {
+  const result = await authFetch<any>("/api/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      cart_item_ids: payload.cartItemIds,
+      receiver_name: payload.receiverName,
+      receiver_phone: payload.receiverPhone,
+      receiver_address: payload.receiverAddress,
+      note: payload.note ?? null
+    })
+  });
+  return {
+    orderId: result.orderId ?? result.order_id,
+    orderNo: result.orderNo ?? result.order_no,
+    status: result.status
+  };
 }
 
 export function getMockCartItems(): CartDisplayItem[] {

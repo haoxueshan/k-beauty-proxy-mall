@@ -16,13 +16,35 @@ export type Product = {
   sourceUrl: string;
 };
 
+export type OrderItem = {
+  id: string;
+  productId: string;
+  sourceUrl?: string | null;
+  titleZh: string;
+  titleKo: string;
+  selectedOption?: string | null;
+  quantity: number;
+  unitPriceCny: number;
+  subtotalCny: number;
+};
+
 export type Order = {
   id: string;
   userId?: string;
   orderNo: string;
   status: string;
+  productTotalCny: number;
+  serviceFeeCny: number;
+  internationalShippingFeeCny: number;
+  packageFeeCny: number;
   totalAmountCny: number;
+  paidAmountCny: number;
   receiverName: string;
+  receiverPhone?: string | null;
+  receiverAddress?: string | null;
+  userNote?: string | null;
+  adminNote?: string | null;
+  items: OrderItem[];
   createdAt: string;
 };
 
@@ -127,8 +149,41 @@ export const mockOrders: Order[] = [
     userId: "demo-user",
     orderNo: "OY202606040001",
     status: "pending_quote",
+    productTotalCny: 353,
+    serviceFeeCny: 0,
+    internationalShippingFeeCny: 0,
+    packageFeeCny: 0,
     totalAmountCny: 353,
+    paidAmountCny: 0,
     receiverName: "张三",
+    receiverPhone: "13800000000",
+    receiverAddress: "上海市浦东新区世纪大道 100 号 8 楼",
+    userNote: "优先保质期长的批次",
+    adminNote: null,
+    items: [
+      {
+        id: "order-item-1",
+        productId: "oy-1",
+        sourceUrl: "https://www.oliveyoung.co.kr/",
+        titleZh: "Round Lab 白桦树防晒霜",
+        titleKo: "라운드랩 자작나무 수분 선크림",
+        selectedOption: "50ml",
+        quantity: 1,
+        unitPriceCny: 149.6,
+        subtotalCny: 149.6
+      },
+      {
+        id: "order-item-2",
+        productId: "oy-2",
+        sourceUrl: "https://www.oliveyoung.co.kr/",
+        titleZh: "rom&nd 果汁唇釉 23 Nucadamia",
+        titleKo: "롬앤 쥬시 래스팅 틴트 23호",
+        selectedOption: "23号",
+        quantity: 2,
+        unitPriceCny: 101.7,
+        subtotalCny: 203.4
+      }
+    ],
     createdAt: "2026-06-04 12:30"
   },
   {
@@ -136,8 +191,30 @@ export const mockOrders: Order[] = [
     userId: "demo-user",
     orderNo: "OY202606030003",
     status: "shipping",
+    productTotalCny: 288,
+    serviceFeeCny: 0,
+    internationalShippingFeeCny: 0,
+    packageFeeCny: 0,
     totalAmountCny: 288,
+    paidAmountCny: 288,
     receiverName: "李四",
+    receiverPhone: "13900000000",
+    receiverAddress: "北京市朝阳区建国路 88 号",
+    userNote: "暖色优先",
+    adminNote: "已完成韩国仓打包",
+    items: [
+      {
+        id: "order-item-3",
+        productId: "oy-3",
+        sourceUrl: "https://www.oliveyoung.co.kr/",
+        titleZh: "Anua 鱼腥草舒缓爽肤水",
+        titleKo: "아누아 어성초 77 토너",
+        selectedOption: "单瓶",
+        quantity: 1,
+        unitPriceCny: 163.2,
+        subtotalCny: 163.2
+      }
+    ],
     createdAt: "2026-06-03 19:42"
   }
 ];
