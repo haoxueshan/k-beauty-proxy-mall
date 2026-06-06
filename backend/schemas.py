@@ -47,8 +47,13 @@ class CrawlerSyncResponse(BaseModel):
 
 class CartItemCreate(BaseModel):
     product_id: str
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
     selected_option: str | None = None
+    note: str | None = None
+
+
+class CartItemUpdate(BaseModel):
+    quantity: int = Field(default=1, ge=1)
     note: str | None = None
 
 
@@ -72,11 +77,23 @@ class DeleteResponse(BaseModel):
 
 
 class OrderCreate(BaseModel):
-    cart_item_ids: list[str]
+    cart_item_ids: list[str] = Field(min_length=1)
     receiver_name: str
     receiver_phone: str
     receiver_address: str
     note: str | None = None
+
+
+class OrderItemSummary(BaseModel):
+    id: str
+    product_id: str
+    source_url: str | None = None
+    title_zh: str
+    title_ko: str
+    selected_option: str | None = None
+    quantity: int
+    unit_price_cny: float
+    subtotal_cny: float
 
 
 class Order(BaseModel):
@@ -84,8 +101,18 @@ class Order(BaseModel):
     user_id: str
     order_no: str
     status: str
+    product_total_cny: float = 0
+    service_fee_cny: float = 0
+    international_shipping_fee_cny: float = 0
+    package_fee_cny: float = 0
     total_amount_cny: float
+    paid_amount_cny: float = 0
     receiver_name: str
+    receiver_phone: str | None = None
+    receiver_address: str | None = None
+    user_note: str | None = None
+    admin_note: str | None = None
+    items: list[OrderItemSummary] = Field(default_factory=list)
     created_at: datetime
 
 

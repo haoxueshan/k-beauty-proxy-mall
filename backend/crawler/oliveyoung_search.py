@@ -15,6 +15,7 @@ OLIVE_YOUNG_SEARCH_URL = "https://www.oliveyoung.co.kr/store/search/getSearchMai
 OLIVE_YOUNG_DETAIL_URL = "https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do"
 
 PRODUCT_LINK_SELECTOR = "a[href*='getGoodsDetail.do'][href*='goodsNo=']"
+DETAIL_META_READY_SELECTOR = 'meta[property="eg:itemName"]'
 CACHE_TTL_SECONDS = 900
 
 _product_cache: dict[str, object] = {
@@ -76,6 +77,14 @@ def _extract_goods_no(href: str) -> str | None:
         return match.group(1)
 
     match = re.search(r"(A\d{12})", href)
+    return match.group(1) if match else None
+
+
+def _normalize_goods_no(value: str) -> str | None:
+    if not value:
+        return None
+
+    match = re.search(r"(A\d{12})", str(value).upper())
     return match.group(1) if match else None
 
 
@@ -141,7 +150,7 @@ def _find_product_container(anchor):
     return anchor
 
 
-def _fetch_page_html(url: str) -> str:
+def _fetch_page_html(url: str, ready_selector: str | None = PRODUCT_LINK_SELECTOR) -> str:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
@@ -159,9 +168,12 @@ def _fetch_page_html(url: str) -> str:
 
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            try:
-                page.wait_for_selector(PRODUCT_LINK_SELECTOR, timeout=15000)
-            except Exception:
+            if ready_selector:
+                try:
+                    page.wait_for_selector(ready_selector, timeout=15000)
+                except Exception:
+                    page.wait_for_timeout(3000)
+            else:
                 page.wait_for_timeout(3000)
 
             for _ in range(3):
@@ -179,6 +191,13 @@ def _fetch_main_page_html() -> str:
 
 def _fetch_search_page_html(keyword_ko: str) -> str:
     return _fetch_page_html(_build_search_url(keyword_ko))
+
+
+def _fetch_detail_page_html(goods_no: str) -> str:
+    return _fetch_page_html(
+        _build_detail_url(goods_no),
+        ready_selector=DETAIL_META_READY_SELECTOR,
+    )
 
 
 def _parse_product_list_page_products(
@@ -262,6 +281,54 @@ def _parse_product_list_page_products(
     return parsed_products
 
 
+def _get_meta_content(soup: BeautifulSoup, property_name: str) -> str:
+    node = soup.find("meta", attrs={"property": property_name})
+    content = node.get("content") if node else ""
+    return content.strip() if isinstance(content, str) else ""
+
+
+def _clean_detail_title(title: str) -> str:
+    return re.sub(r"\s*\|\s*올리브영\s*$", "", title).strip()
+
+
+def _parse_detail_page_product(html: str, goods_no: str) -> RawCrawlerProduct | None:
+    soup = BeautifulSoup(html, "html.parser")
+
+    title_ko = _get_meta_content(soup, "eg:itemName")
+    if not title_ko:
+        title_ko = _clean_detail_title(_get_meta_content(soup, "og:title"))
+    if not title_ko and soup.title and soup.title.string:
+        title_ko = _clean_detail_title(soup.title.string)
+    if not title_ko:
+        return None
+
+    brand_ko = _get_meta_content(soup, "eg:brandName") or _extract_brand(title_ko)
+    image_url = _get_meta_content(soup, "og:image")
+    original_price = _parse_price(_get_meta_content(soup, "eg:originalPrice"))
+    sale_price = _parse_price(_get_meta_content(soup, "eg:salePrice"))
+
+    if sale_price is None:
+        return None
+    if original_price is None:
+        original_price = sale_price
+
+    return RawCrawlerProduct(
+        goods_no=goods_no,
+        title_ko=title_ko,
+        brand_ko=brand_ko,
+        image_url=image_url,
+        original_price_krw=original_price,
+        sale_price_krw=sale_price,
+        category_ko=_infer_category(title_ko),
+        source_url=_build_detail_url(goods_no),
+        raw_data={
+            "source": "oliveyoung-detail",
+            "goods_no": goods_no,
+            "image_url": image_url,
+        },
+    )
+
+
 def _parse_main_page_products(html: str, limit: int = 24) -> list[RawCrawlerProduct]:
     return _parse_product_list_page_products(
         html=html,
@@ -332,6 +399,13 @@ def _normalize_raw_products(raw_products: list[RawCrawlerProduct]) -> list[Produ
     ]
 
 
+def _upsert_product_cache(product: RawCrawlerProduct) -> None:
+    cached_products = _product_cache.get("products") or []
+    deduped_products = [item for item in cached_products if item.goods_no != product.goods_no]
+    _product_cache["products"] = [product, *deduped_products]
+    _product_cache["fetched_at"] = time.time()
+
+
 def _raw_products_source(raw_products: list[RawCrawlerProduct], default_source: str) -> str:
     for item in raw_products:
         source = item.raw_data.get("source")
@@ -356,6 +430,25 @@ def get_cached_products() -> list[Product]:
                 seen_goods_no.add(item.goods_no)
 
     return _normalize_raw_products(raw_products)
+
+
+def get_product_by_goods_no(goods_no: str) -> Product | None:
+    normalized_goods_no = _normalize_goods_no(goods_no)
+    if not normalized_goods_no:
+        return None
+
+    try:
+        html = _fetch_detail_page_html(normalized_goods_no)
+        raw_product = _parse_detail_page_product(html, normalized_goods_no)
+    except Exception:
+        return None
+
+    if raw_product is None:
+        return None
+
+    _upsert_product_cache(raw_product)
+    normalized_products = _normalize_raw_products([raw_product])
+    return normalized_products[0] if normalized_products else None
 
 
 def sync_homepage_products(limit: int = 24) -> tuple[int, str]:

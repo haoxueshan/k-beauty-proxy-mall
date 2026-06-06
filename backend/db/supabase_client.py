@@ -131,6 +131,17 @@ def insert_rows(table: str, payload: dict | list[dict]) -> list[dict]:
     return response or []
 
 
+def update_rows(table: str, *, filters: dict[str, str], payload: dict) -> list[dict]:
+    response = _request_json(
+        "PATCH",
+        f"/rest/v1/{table}",
+        query=filters,
+        payload=payload,
+        headers={"Prefer": "return=representation"},
+    )
+    return response or []
+
+
 def delete_rows(table: str, *, filters: dict[str, str]) -> list[dict]:
     response = _request_json(
         "DELETE",
