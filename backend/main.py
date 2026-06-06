@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from crawler.oliveyoung_product import get_product_detail
-from crawler.oliveyoung_search import search_products, sync_homepage_products
+from crawler.oliveyoung_search import search_products_with_source, sync_homepage_products
 from schemas import (
     AuthResponse,
     CartItem,
@@ -86,12 +86,27 @@ def auth_logout(
 
 @app.get("/api/products/search", response_model=SearchResponse)
 def product_search(keyword: str = "") -> SearchResponse:
-    keyword_ko, items = search_products(keyword)
+    keyword_ko, items, source, error = search_products_with_source(keyword)
     return SearchResponse(
         keyword_original=keyword,
         keyword_ko=keyword_ko,
         count=len(items),
         items=items,
+        source=source,
+        error=error,
+    )
+
+
+@app.get("/api/oliveyoung/search", response_model=SearchResponse)
+def oliveyoung_search(q: str = "") -> SearchResponse:
+    keyword_ko, items, source, error = search_products_with_source(q)
+    return SearchResponse(
+        keyword_original=q,
+        keyword_ko=keyword_ko,
+        count=len(items),
+        items=items,
+        source=source,
+        error=error,
     )
 
 

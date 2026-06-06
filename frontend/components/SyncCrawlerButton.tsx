@@ -23,6 +23,11 @@ export function SyncCrawlerButton({ keyword, limit = 24 }: Props) {
 
     try {
       const result = await syncOliveYoungProducts(keyword || "homepage", limit);
+      if (result.source === "fallback-seed" || result.source.includes("error")) {
+        setError(`没有同步到实时 Olive Young 数据，当前来源：${result.source}`);
+        return;
+      }
+
       setMessage(`已同步 ${result.count} 个商品，来源：${result.source || "Olive Young 首页"}`);
       startTransition(() => {
         router.refresh();

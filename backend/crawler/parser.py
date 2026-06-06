@@ -4,10 +4,9 @@ from services.translate_service import brand_to_chinese, category_to_chinese, su
 
 
 def normalize_product(raw: RawCrawlerProduct, title_zh: str) -> Product:
-    numeric_suffix = int(raw.goods_no[-3:])
     category_zh = category_to_chinese(raw.category_ko)
     return Product(
-        id=f"oy-{numeric_suffix}",
+        id=f"oy-{raw.goods_no}",
         goods_no=raw.goods_no,
         source_url=raw.source_url,
         brand_ko=raw.brand_ko,

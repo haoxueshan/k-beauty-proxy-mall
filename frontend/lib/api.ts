@@ -7,6 +7,8 @@ export type ProductSearchResult = {
   keywordKo: string;
   count: number;
   items: Product[];
+  source: string;
+  error?: string;
 };
 
 export type CrawlerSyncResult = {
@@ -29,6 +31,17 @@ async function safeFetch<T>(path: string, fallback: T): Promise<T> {
   } catch {
     return fallback;
   }
+}
+
+async function liveFetch<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store"
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.detail ?? "Live crawler request failed");
+  }
+  return payload as T;
 }
 
 function normalizeProduct(payload: any): Product {
@@ -88,10 +101,12 @@ function normalizeCartEntry(payload: any): CartEntry {
 function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductSearchResult {
   const items = Array.isArray(payload.items) ? payload.items.map(normalizeProduct) : fallbackItems;
   return {
-    keywordOriginal: payload.keywordOriginal ?? payload.keyword_original ?? "",
+    keywordOriginal: payload.keywordOriginal ?? payload.keyword_original ?? payload.keyword ?? "",
     keywordKo: payload.keywordKo ?? payload.keyword_ko ?? "",
     count: payload.count ?? items.length,
-    items
+    items,
+    source: payload.source ?? "oliveyoung-live",
+    error: payload.error ?? undefined
   };
 }
 
@@ -106,23 +121,19 @@ function normalizeCrawlerSyncResult(payload: any): CrawlerSyncResult {
 }
 
 export async function searchProductResults(keyword: string): Promise<ProductSearchResult> {
-  const normalized = keyword.trim().toLowerCase();
-  const fallback = !normalized
-    ? mockProducts
-    : mockProducts.filter((product) =>
-        [product.titleZh, product.titleKo, product.brandZh, product.categoryZh].join(" ").toLowerCase().includes(normalized)
-      );
-
-  const data = await safeFetch<any>(
-    `/api/products/search?keyword=${encodeURIComponent(keyword)}`,
-    {
-      keyword_original: keyword,
-      keyword_ko: keyword,
-      count: fallback.length,
-      items: fallback
-    }
-  );
-  return normalizeSearchResult(data, fallback);
+  try {
+    const data = await liveFetch<any>(`/api/oliveyoung/search?q=${encodeURIComponent(keyword)}`);
+    return normalizeSearchResult(data, []);
+  } catch (requestError) {
+    return {
+      keywordOriginal: keyword,
+      keywordKo: keyword,
+      count: 0,
+      items: [],
+      source: "oliveyoung-live-error",
+      error: requestError instanceof Error ? requestError.message : "Live crawler request failed"
+    };
+  }
 }
 
 export async function searchProducts(keyword: string): Promise<Product[]> {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from urllib.parse import urljoin
+from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
 
@@ -11,13 +11,17 @@ from schemas import Product, RawCrawlerProduct
 from services.translate_service import keyword_to_korean, translate_titles_to_chinese
 
 OLIVE_YOUNG_MAIN_URL = "https://www.oliveyoung.co.kr/store/main/main.do?oy=0"
-PRODUCT_LINK_SELECTOR = "a.item.a_detail[href*='getGoodsDetail.do?goodsNo=']"
+OLIVE_YOUNG_SEARCH_URL = "https://www.oliveyoung.co.kr/store/search/getSearchMain.do"
+OLIVE_YOUNG_DETAIL_URL = "https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do"
+
+PRODUCT_LINK_SELECTOR = "a[href*='getGoodsDetail.do'][href*='goodsNo=']"
 CACHE_TTL_SECONDS = 900
 
 _product_cache: dict[str, object] = {
     "fetched_at": 0.0,
     "products": [],
 }
+_search_cache: dict[str, dict[str, object]] = {}
 
 
 def _seed_raw_products() -> list[RawCrawlerProduct]:
@@ -30,7 +34,8 @@ def _seed_raw_products() -> list[RawCrawlerProduct]:
             original_price_krw=26000,
             sale_price_krw=18900,
             category_ko="선케어",
-            source_url=OLIVE_YOUNG_MAIN_URL,
+            source_url=_build_detail_url("A000000000001"),
+            raw_data={"source": "fallback-seed"},
         ),
         RawCrawlerProduct(
             goods_no="A000000000002",
@@ -40,7 +45,8 @@ def _seed_raw_products() -> list[RawCrawlerProduct]:
             original_price_krw=13000,
             sale_price_krw=9800,
             category_ko="립메이크업",
-            source_url=OLIVE_YOUNG_MAIN_URL,
+            source_url=_build_detail_url("A000000000002"),
+            raw_data={"source": "fallback-seed"},
         ),
         RawCrawlerProduct(
             goods_no="A000000000003",
@@ -50,13 +56,26 @@ def _seed_raw_products() -> list[RawCrawlerProduct]:
             original_price_krw=29000,
             sale_price_krw=21500,
             category_ko="스킨케어",
-            source_url=OLIVE_YOUNG_MAIN_URL,
+            source_url=_build_detail_url("A000000000003"),
+            raw_data={"source": "fallback-seed"},
         ),
     ]
 
 
+def _build_search_url(keyword_ko: str) -> str:
+    return f"{OLIVE_YOUNG_SEARCH_URL}?query={quote_plus(keyword_ko)}"
+
+
+def _build_detail_url(goods_no: str) -> str:
+    return f"{OLIVE_YOUNG_DETAIL_URL}?goodsNo={goods_no}"
+
+
 def _extract_goods_no(href: str) -> str | None:
     match = re.search(r"goodsNo=([A-Z0-9]+)", href)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"(A\d{12})", href)
     return match.group(1) if match else None
 
 
@@ -76,70 +95,137 @@ def _extract_brand(title_ko: str) -> str:
 
 def _infer_category(title_ko: str) -> str:
     lowered = title_ko.lower()
-    if any(keyword in lowered for keyword in ["선크림", "선스틱", "선케어"]):
+    if any(keyword in lowered for keyword in ["선크림", "선스틱", "선케어", "sun", "sunscreen"]):
         return "선케어"
-    if any(keyword in lowered for keyword in ["틴트", "립", "글로스"]):
+    if any(keyword in lowered for keyword in ["틴트", "립", "글로스", "lip"]):
         return "립메이크업"
-    if any(keyword in lowered for keyword in ["클렌징", "클렌저", "폼", "오일"]):
+    if any(keyword in lowered for keyword in ["클렌징", "클렌저", "폼", "오일", "clean"]):
         return "클렌징"
-    if any(keyword in lowered for keyword in ["마스크", "팩", "패드"]):
+    if any(keyword in lowered for keyword in ["마스크", "팩", "패드", "mask"]):
         return "마스크팩"
-    if any(keyword in lowered for keyword in ["샴푸", "트리트먼트", "헤어"]):
+    if any(keyword in lowered for keyword in ["샴푸", "트리트먼트", "헤어", "hair"]):
         return "헤어케어"
-    if any(keyword in lowered for keyword in ["쿠션", "파운데이션", "베이스"]):
+    if any(keyword in lowered for keyword in ["쿠션", "파운데이션", "프라이머", "베이스"]):
         return "베이스 메이크업"
     return "스킨케어"
 
 
-def _fetch_main_page_html() -> str:
+def _get_image_url(image_node) -> str:
+    if not image_node:
+        return ""
+
+    for attr in ["src", "data-src", "data-original", "data-lazy-src"]:
+        value = image_node.get(attr)
+        if value and not value.startswith("data:"):
+            return urljoin(OLIVE_YOUNG_MAIN_URL, value)
+
+    return ""
+
+
+def _find_product_container(anchor):
+    node = anchor
+
+    for _ in range(8):
+        if not node:
+            break
+
+        if hasattr(node, "select_one") and (
+            node.select_one(".tx_name")
+            or node.select_one(".tx_brand")
+            or node.select_one(".prd_price")
+        ):
+            return node
+
+        node = node.parent
+
+    return anchor
+
+
+def _fetch_page_html(url: str) -> str:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page(
-            locale="ko-KR",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1440, "height": 2200},
-        )
-        page.goto(OLIVE_YOUNG_MAIN_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(2500)
-        html = page.content()
-        browser.close()
-        return html
+        try:
+            page = browser.new_page(
+                locale="ko-KR",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/137.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1440, "height": 2200},
+            )
+
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+            try:
+                page.wait_for_selector(PRODUCT_LINK_SELECTOR, timeout=15000)
+            except Exception:
+                page.wait_for_timeout(3000)
+
+            for _ in range(3):
+                page.mouse.wheel(0, 1200)
+                page.wait_for_timeout(800)
+
+            return page.content()
+        finally:
+            browser.close()
 
 
-def _parse_main_page_products(html: str, limit: int = 24) -> list[RawCrawlerProduct]:
+def _fetch_main_page_html() -> str:
+    return _fetch_page_html(OLIVE_YOUNG_MAIN_URL)
+
+
+def _fetch_search_page_html(keyword_ko: str) -> str:
+    return _fetch_page_html(_build_search_url(keyword_ko))
+
+
+def _parse_product_list_page_products(
+    html: str,
+    page_url: str,
+    limit: int = 24,
+) -> list[RawCrawlerProduct]:
     soup = BeautifulSoup(html, "html.parser")
     seen_goods_no: set[str] = set()
     parsed_products: list[RawCrawlerProduct] = []
+    source = "oliveyoung-search" if page_url.startswith(OLIVE_YOUNG_SEARCH_URL) else "oliveyoung-main"
 
     for anchor in soup.select(PRODUCT_LINK_SELECTOR):
         href = anchor.get("href") or ""
-        goods_no = anchor.get("data-ref-goodsno") or _extract_goods_no(href)
+        goods_no = (
+            anchor.get("data-ref-goodsno")
+            or anchor.get("data-goods-no")
+            or _extract_goods_no(href)
+        )
         if not goods_no or goods_no in seen_goods_no:
             continue
 
-        title_node = anchor.select_one(".tx_name")
+        container = _find_product_container(anchor)
+        title_node = container.select_one(".tx_name")
+        brand_node = container.select_one(".tx_brand")
+        image_node = container.select_one("img") or anchor.select_one("img")
+
         title_ko = title_node.get_text(" ", strip=True) if title_node else ""
-        if not title_ko:
-            image_node = anchor.select_one("img")
-            title_ko = (image_node.get("alt") or "").strip() if image_node else ""
+        if not title_ko and image_node:
+            title_ko = (image_node.get("alt") or "").strip()
         if not title_ko:
             continue
 
-        image_node = anchor.select_one("img")
-        image_url = urljoin(OLIVE_YOUNG_MAIN_URL, image_node.get("src", "")) if image_node else ""
-        original_price = _parse_price(
-            anchor.select_one(".tx_org .tx_num").get_text(strip=True) if anchor.select_one(".tx_org .tx_num") else None
-        )
-        sale_price = _parse_price(
-            anchor.select_one(".tx_cur .tx_num").get_text(strip=True) if anchor.select_one(".tx_cur .tx_num") else None
-        )
+        brand_ko = brand_node.get_text(" ", strip=True) if brand_node else _extract_brand(title_ko)
+        image_url = _get_image_url(image_node)
+        original_price = None
+        sale_price = None
+
+        org_node = container.select_one(".tx_org .tx_num")
+        cur_node = container.select_one(".tx_cur .tx_num")
+        if org_node:
+            original_price = _parse_price(org_node.get_text(strip=True))
+        if cur_node:
+            sale_price = _parse_price(cur_node.get_text(strip=True))
+
         if sale_price is None:
-            all_prices = [_parse_price(node.get_text(strip=True)) for node in anchor.select(".prd_price .tx_num")]
+            all_prices = [_parse_price(node.get_text(strip=True)) for node in container.select(".prd_price .tx_num")]
             all_prices = [price for price in all_prices if price is not None]
             if all_prices:
                 original_price = all_prices[0]
@@ -154,16 +240,17 @@ def _parse_main_page_products(html: str, limit: int = 24) -> list[RawCrawlerProd
             RawCrawlerProduct(
                 goods_no=goods_no,
                 title_ko=title_ko,
-                brand_ko=_extract_brand(title_ko),
+                brand_ko=brand_ko,
                 image_url=image_url,
                 original_price_krw=original_price,
                 sale_price_krw=sale_price,
                 category_ko=_infer_category(title_ko),
-                source_url=urljoin(OLIVE_YOUNG_MAIN_URL, href),
+                source_url=_build_detail_url(goods_no),
                 raw_data={
-                    "source": "oliveyoung-main",
+                    "source": source,
+                    "page_url": page_url,
                     "href": href,
-                    "text": anchor.get_text(" ", strip=True),
+                    "text": container.get_text(" ", strip=True),
                 },
             )
         )
@@ -173,6 +260,45 @@ def _parse_main_page_products(html: str, limit: int = 24) -> list[RawCrawlerProd
             break
 
     return parsed_products
+
+
+def _parse_main_page_products(html: str, limit: int = 24) -> list[RawCrawlerProduct]:
+    return _parse_product_list_page_products(
+        html=html,
+        page_url=OLIVE_YOUNG_MAIN_URL,
+        limit=limit,
+    )
+
+
+def _get_search_products(keyword_ko: str, limit: int = 24) -> list[RawCrawlerProduct]:
+    search_url = _build_search_url(keyword_ko)
+    html = _fetch_search_page_html(keyword_ko)
+    return _parse_product_list_page_products(
+        html=html,
+        page_url=search_url,
+        limit=limit,
+    )
+
+
+def _get_cached_search_products(keyword_ko: str, limit: int = 24) -> list[RawCrawlerProduct]:
+    now = time.time()
+    cache_key = keyword_ko.strip().lower()
+
+    cached = _search_cache.get(cache_key)
+    if cached:
+        fetched_at = float(cached.get("fetched_at", 0.0))
+        products = cached.get("products")
+        if products and (now - fetched_at) < CACHE_TTL_SECONDS:
+            return products  # type: ignore[return-value]
+
+    products = _get_search_products(keyword_ko, limit=limit)
+    if products:
+        _search_cache[cache_key] = {
+            "fetched_at": now,
+            "products": products,
+        }
+
+    return products
 
 
 def _get_live_or_seed_products(limit: int = 24) -> list[RawCrawlerProduct]:
@@ -198,6 +324,40 @@ def _get_live_or_seed_products(limit: int = 24) -> list[RawCrawlerProduct]:
     return fallback_products
 
 
+def _normalize_raw_products(raw_products: list[RawCrawlerProduct]) -> list[Product]:
+    translation_result = translate_titles_to_chinese([item.title_ko for item in raw_products])
+    return [
+        normalize_product(item, title_zh)
+        for item, title_zh in zip(raw_products, translation_result.translations)
+    ]
+
+
+def _raw_products_source(raw_products: list[RawCrawlerProduct], default_source: str) -> str:
+    for item in raw_products:
+        source = item.raw_data.get("source")
+        if isinstance(source, str) and source:
+            return source
+    return default_source
+
+
+def get_cached_products() -> list[Product]:
+    seen_goods_no: set[str] = set()
+    raw_products: list[RawCrawlerProduct] = []
+
+    for item in _product_cache.get("products") or []:
+        if item.goods_no not in seen_goods_no:
+            raw_products.append(item)
+            seen_goods_no.add(item.goods_no)
+
+    for cached in _search_cache.values():
+        for item in cached.get("products") or []:
+            if item.goods_no not in seen_goods_no:
+                raw_products.append(item)
+                seen_goods_no.add(item.goods_no)
+
+    return _normalize_raw_products(raw_products)
+
+
 def sync_homepage_products(limit: int = 24) -> tuple[int, str]:
     try:
         html = _fetch_main_page_html()
@@ -216,27 +376,26 @@ def sync_homepage_products(limit: int = 24) -> tuple[int, str]:
 
 
 def search_products(keyword: str) -> tuple[str, list[Product]]:
+    keyword_ko, products, _, _ = search_products_with_source(keyword)
+    return keyword_ko, products
+
+
+def search_products_with_source(keyword: str) -> tuple[str, list[Product], str, str | None]:
     keyword_ko = keyword_to_korean(keyword)
-    raw_products = _get_live_or_seed_products()
-    translation_result = translate_titles_to_chinese([item.title_ko for item in raw_products])
-    products = [
-        normalize_product(item, title_zh)
-        for item, title_zh in zip(raw_products, translation_result.translations)
-    ]
+    has_keyword = bool(keyword.strip())
 
-    lowered = keyword.strip().lower()
-    if not lowered:
-        return keyword_ko, products
+    if has_keyword:
+        try:
+            raw_products = _get_cached_search_products(keyword_ko, limit=24)
+        except Exception as exc:
+            return keyword_ko, [], "oliveyoung-search-error", str(exc)
 
-    filtered = [
-        product
-        for product in products
-        if lowered in product.title_zh.lower()
-        or lowered in product.title_ko.lower()
-        or lowered in product.brand_zh.lower()
-        or lowered in product.brand_ko.lower()
-        or lowered in product.category_zh.lower()
-        or keyword_ko.lower() in product.title_ko.lower()
-        or keyword_ko.lower() in product.title_zh.lower()
-    ]
-    return keyword_ko, filtered
+        source = _raw_products_source(raw_products, "oliveyoung-search")
+    else:
+        raw_products = _get_live_or_seed_products()
+        source = _raw_products_source(raw_products, "oliveyoung-main")
+
+    if not raw_products:
+        source = "oliveyoung-search-empty" if has_keyword else "oliveyoung-main-empty"
+
+    return keyword_ko, _normalize_raw_products(raw_products), source, None

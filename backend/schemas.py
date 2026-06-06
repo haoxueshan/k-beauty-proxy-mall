@@ -28,6 +28,8 @@ class SearchResponse(BaseModel):
     keyword_ko: str
     count: int
     items: list[Product]
+    source: str = "oliveyoung-live"
+    error: str | None = None
 
 
 class CrawlerSyncRequest(BaseModel):

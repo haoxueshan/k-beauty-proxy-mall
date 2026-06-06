@@ -4,16 +4,28 @@ from services.llm_translate_service import TranslationBatchResult, translate_tex
 
 KEYWORD_MAPPING = {
     "防晒": "선크림",
+    "防晒霜": "선크림",
+    "防晒棒": "선스틱",
     "面膜": "마스크팩",
-    "卸妆油": "클렌징 오일",
-    "唇釉": "립틴트",
+    "洁面": "클렌징폼",
+    "洁面泡沫": "클렌징폼",
+    "洗面奶": "클렌징폼",
+    "卸妆": "클렌징",
+    "卸妆油": "클렌징오일",
+    "口红": "립스틱",
+    "唇釉": "틴트",
+    "润唇膏": "립밤",
     "护肤": "스킨케어",
     "底妆": "베이스 메이크업",
+    "气垫": "쿠션",
     "补水": "수분",
-    "精华": "세럼",
+    "保湿": "보습",
     "爽肤水": "토너",
-    "洁面": "클렌저",
+    "精华": "세럼",
     "眼霜": "아이크림",
+    "面霜": "크림",
+    "护发": "헤어케어",
+    "洗发水": "샴푸",
 }
 
 BRAND_MAPPING = {
@@ -25,6 +37,7 @@ BRAND_MAPPING = {
     "메디큐브": "Medicube",
     "뷰티오브조선": "Beauty of Joseon",
     "닥터지": "Dr.G",
+    "라로슈포제": "La Roche-Posay",
 }
 
 CATEGORY_MAPPING = {
@@ -46,6 +59,7 @@ TITLE_REPLACEMENTS = {
     "메디큐브": "Medicube",
     "뷰티오브조선": "Beauty of Joseon",
     "닥터지": "Dr.G",
+    "라로슈포제": "La Roche-Posay",
     "자작나무": "白桦树",
     "어성초": "鱼腥草",
     "마데카소사이드": "积雪草苷",
@@ -61,6 +75,7 @@ TITLE_REPLACEMENTS = {
     "에센스": "精华液",
     "앰플": "安瓶",
     "크림": "面霜",
+    "클렌징오일": "卸妆油",
     "클렌징 오일": "卸妆油",
     "클렌저": "洁面乳",
     "클렌징폼": "洁面泡沫",
@@ -68,6 +83,7 @@ TITLE_REPLACEMENTS = {
     "패드": "棉片",
     "쿠션": "气垫",
     "틴트": "唇釉",
+    "립스틱": "口红",
     "립밤": "润唇膏",
     "세트": "套装",
     "리필": "补充装",
@@ -111,4 +127,4 @@ def translate_titles_to_chinese(titles_ko: list[str]) -> TranslationBatchResult:
 
 
 def summarize_product(title_zh: str, category_zh: str) -> str:
-    return f"{title_zh} 属于{category_zh}类目，适合作为当前代理下单与报价展示的候选商品。"
+    return f"{title_zh} 属于{category_zh}类目，适合作为当前代购下单与报价展示的候选商品。"

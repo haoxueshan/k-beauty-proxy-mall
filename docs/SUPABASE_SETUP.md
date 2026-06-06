@@ -28,6 +28,7 @@ Copy [frontend/.env.local.example](C:/Users/Administrator/Desktop/demo/frontend/
 
 Required for the frontend:
 
+- `NEXT_PUBLIC_API_BASE_URL`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
@@ -51,6 +52,6 @@ The backend now stores these flows in Supabase:
 
 ## 5. Current scope
 
-- Product search/detail is still mock-backed for the MVP scaffold.
+- Product search/detail now uses backend crawler responses, with homepage sync and live search paths available.
 - Auth, cart insert, and order persistence now use Supabase cloud tables.
 - The current backend write path cannot run with only a publishable key; it still requires a service role key or a future RLS-based redesign.
