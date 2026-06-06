@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { useAuth } from "@/components/AuthProvider";
 import { OrderStatusBadge } from "@/components/OrderStatusBadge";
-import { getMyOrders } from "@/lib/api";
+import { deleteOrder, getMyOrders } from "@/lib/api";
 import type { Order } from "@/lib/mock-data";
 
 function formatDateTime(value: string) {
@@ -35,6 +35,7 @@ export function OrdersClient() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -56,13 +57,35 @@ export function OrdersClient() {
       });
   }, [isAuthenticated, token]);
 
+  async function handleDeleteOrder(order: Order) {
+    if (!token) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除订单 ${order.orderNo} 吗？删除后无法恢复。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setDeletingId(order.id);
+    try {
+      await deleteOrder(token, order.id);
+      setOrders((current) => current.filter((item) => item.id !== order.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "订单删除失败");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <AuthGate title="登录后查看订单" description="注册或登录后，才能查看你的代购订单、报价状态和物流进度。">
       {isLoading ? (
         <div className="panel p-8">
           <p className="text-lg font-semibold">正在加载订单…</p>
         </div>
-      ) : error ? (
+      ) : error && orders.length === 0 ? (
         <div className="panel p-8">
           <p className="text-lg font-semibold">订单读取失败</p>
           <p className="subtle mt-2">{error}</p>
@@ -74,6 +97,7 @@ export function OrdersClient() {
         </div>
       ) : (
         <section className="mt-8 space-y-5">
+          {error ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
           {orders.map((order) => (
             <article key={order.id} className="panel p-6">
               <div className="flex flex-col gap-4 border-b border-black/10 pb-5 md:flex-row md:items-start md:justify-between">
@@ -90,6 +114,14 @@ export function OrdersClient() {
                   <OrderStatusBadge status={order.status} />
                   <span className="text-xl font-bold text-coral">¥{order.totalAmountCny.toFixed(2)}</span>
                   <p className="text-sm subtle">已支付：¥{order.paidAmountCny.toFixed(2)}</p>
+                  <button
+                    type="button"
+                    className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => handleDeleteOrder(order)}
+                    disabled={deletingId === order.id}
+                  >
+                    {deletingId === order.id ? "删除中..." : "删除订单"}
+                  </button>
                 </div>
               </div>
 

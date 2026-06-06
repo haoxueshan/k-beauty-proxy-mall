@@ -272,6 +272,15 @@ export async function getMyOrders(token: string): Promise<Order[]> {
   return result.map(normalizeOrder);
 }
 
+export async function deleteOrder(token: string, orderId: string): Promise<void> {
+  await authFetch(`/api/orders/${orderId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+}
+
 export async function updateCartItem(
   token: string,
   cartItemId: string,

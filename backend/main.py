@@ -35,6 +35,7 @@ from services.order_service import (
     add_cart_item,
     create_order,
     delete_cart_item,
+    delete_order,
     get_cart_items,
     list_cart_items,
     list_orders,
@@ -244,6 +245,14 @@ def remove_cart_item(cart_item_id: str, user: UserPublic = Depends(get_current_u
 @app.get("/api/orders")
 def orders(user: UserPublic = Depends(get_current_user)):
     return list_orders(user.id)
+
+
+@app.delete("/api/orders/{order_id}", response_model=DeleteResponse)
+def remove_order(order_id: str, user: UserPublic = Depends(get_current_user)) -> DeleteResponse:
+    deleted = delete_order(user.id, order_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return DeleteResponse(success=True)
 
 
 @app.post("/api/orders", response_model=OrderResponse)
