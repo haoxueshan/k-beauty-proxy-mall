@@ -116,6 +116,12 @@ class Order(BaseModel):
     created_at: datetime
 
 
+class AdminOrder(Order):
+    user_email: str | None = None
+    user_name: str | None = None
+    user_phone: str | None = None
+
+
 class OrderResponse(BaseModel):
     order_id: str
     order_no: str

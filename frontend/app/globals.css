@@ -101,8 +101,116 @@ a {
   background: var(--accent-dark);
 }
 
+.cta:disabled {
+  cursor: wait;
+  opacity: 0.8;
+}
+
 .ghost {
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--line);
+}
+
+.mini-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: white;
+  animation: spin 720ms linear infinite;
+}
+
+.loading-orbit {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(240, 100, 73, 0.18) 0 34%, transparent 35%),
+    conic-gradient(from 180deg, rgba(240, 100, 73, 0.1), rgba(240, 100, 73, 0.9), rgba(72, 107, 69, 0.18));
+  animation: spin 2s linear infinite;
+}
+
+.loading-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 13px;
+  border-radius: inherit;
+  background: var(--bg-soft);
+}
+
+.loading-orbit span {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 28px rgba(240, 100, 73, 0.8);
+}
+
+.loading-steps {
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@media (min-width: 768px) {
+  .loading-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.loading-steps span {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  padding: 10px 14px;
+}
+
+.loading-steps span::after,
+.shimmer-line::after,
+.shimmer-block::after,
+.shimmer-pill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: shimmer 1.45s ease-in-out infinite;
+}
+
+.shimmer-line,
+.shimmer-block,
+.shimmer-pill {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.shimmer-line {
+  border-radius: 999px;
+}
+
+.shimmer-pill {
+  border-radius: 999px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
 }

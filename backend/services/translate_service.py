@@ -1,8 +1,18 @@
 from __future__ import annotations
 
-from services.llm_translate_service import TranslationBatchResult, translate_texts
+import json
+import os
+import re
+import threading
+from pathlib import Path
 
-KEYWORD_MAPPING = {
+from services.llm_translate_service import (
+    TranslationBatchResult,
+    translate_search_keyword_to_korean,
+    translate_texts,
+)
+
+DEFAULT_KEYWORD_MAPPING = {
     "防晒": "선크림",
     "防晒霜": "선크림",
     "防晒棒": "선스틱",
@@ -26,6 +36,10 @@ KEYWORD_MAPPING = {
     "面霜": "크림",
     "护发": "헤어케어",
     "洗发水": "샴푸",
+    "牙膏": "치약",
+    "牙刷": "칫솔",
+    "漱口水": "가글",
+    "口腔护理": "구강케어",
 }
 
 BRAND_MAPPING = {
@@ -91,10 +105,90 @@ TITLE_REPLACEMENTS = {
     "한정": "限定",
 }
 
+HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
+KEYWORD_DICTIONARY_PATH = Path(
+    os.getenv(
+        "KEYWORD_DICTIONARY_PATH",
+        str(Path(__file__).resolve().parents[1] / "data" / "keyword_dictionary.json"),
+    )
+)
+_keyword_dictionary_lock = threading.Lock()
+
+
+def _normalize_keyword(keyword: str) -> str:
+    return " ".join(keyword.strip().split())
+
+
+def _normalize_mapping(mapping: dict[str, object]) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for source, target in mapping.items():
+        if not isinstance(source, str) or not isinstance(target, str):
+            continue
+        source_keyword = _normalize_keyword(source)
+        target_keyword = _normalize_keyword(target)
+        if source_keyword and target_keyword:
+            normalized[source_keyword] = target_keyword
+    return normalized
+
+
+def _write_keyword_dictionary(mapping: dict[str, str]) -> None:
+    KEYWORD_DICTIONARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = KEYWORD_DICTIONARY_PATH.with_suffix(".tmp")
+    temp_path.write_text(
+        json.dumps(dict(sorted(mapping.items())), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temp_path.replace(KEYWORD_DICTIONARY_PATH)
+
+
+def _read_keyword_dictionary() -> dict[str, str]:
+    if not KEYWORD_DICTIONARY_PATH.exists():
+        _write_keyword_dictionary(DEFAULT_KEYWORD_MAPPING)
+        return dict(DEFAULT_KEYWORD_MAPPING)
+
+    try:
+        payload = json.loads(KEYWORD_DICTIONARY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(DEFAULT_KEYWORD_MAPPING)
+
+    if not isinstance(payload, dict):
+        return dict(DEFAULT_KEYWORD_MAPPING)
+
+    merged = dict(DEFAULT_KEYWORD_MAPPING)
+    merged.update(_normalize_mapping(payload))
+    return merged
+
+
+def _save_keyword_translation(source_keyword: str, korean_keyword: str) -> None:
+    with _keyword_dictionary_lock:
+        mapping = _read_keyword_dictionary()
+        mapping[source_keyword] = korean_keyword
+        _write_keyword_dictionary(mapping)
+
 
 def keyword_to_korean(keyword: str) -> str:
-    normalized = keyword.strip()
-    return KEYWORD_MAPPING.get(normalized, normalized)
+    normalized = _normalize_keyword(keyword)
+    if not normalized:
+        return ""
+
+    with _keyword_dictionary_lock:
+        mapping = _read_keyword_dictionary()
+
+    mapped_keyword = mapping.get(normalized)
+    if mapped_keyword:
+        return mapped_keyword
+
+    if HANGUL_PATTERN.search(normalized):
+        _save_keyword_translation(normalized, normalized)
+        return normalized
+
+    result = translate_search_keyword_to_korean(normalized, fallback_text=normalized)
+    translated_keyword = _normalize_keyword(result.translations[0] if result.translations else normalized)
+    if result.provider == "openai" and HANGUL_PATTERN.search(translated_keyword):
+        _save_keyword_translation(normalized, translated_keyword)
+        return translated_keyword
+
+    return normalized
 
 
 def brand_to_chinese(brand_ko: str) -> str:

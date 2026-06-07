@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from db.supabase_client import delete_rows, insert_rows, select_rows, update_rows
-from schemas import CartItem, Order, OrderCreate, OrderItemSummary, Product
+from schemas import AdminOrder, CartItem, Order, OrderCreate, OrderItemSummary, Product
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -67,6 +67,30 @@ def list_orders(user_id: str | None = None) -> list[Order]:
             created_at=_parse_datetime(row["created_at"]),
         )
         for row in rows
+    ]
+
+
+def list_admin_orders() -> list[AdminOrder]:
+    orders = list_orders()
+    user_ids = sorted({order.user_id for order in orders if order.user_id})
+    users_by_id: dict[str, dict] = {}
+
+    if user_ids:
+        user_rows = select_rows(
+            "users",
+            columns="id,email,name,phone",
+            filters={"id": f"in.({','.join(user_ids)})"},
+        )
+        users_by_id = {row["id"]: row for row in user_rows}
+
+    return [
+        AdminOrder(
+            **order.model_dump(),
+            user_email=users_by_id.get(order.user_id, {}).get("email"),
+            user_name=users_by_id.get(order.user_id, {}).get("name"),
+            user_phone=users_by_id.get(order.user_id, {}).get("phone"),
+        )
+        for order in orders
     ]
 
 

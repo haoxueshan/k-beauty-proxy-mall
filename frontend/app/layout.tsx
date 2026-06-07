@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     <Link href="/search">搜索</Link>
                     <Link href="/cart">购物车</Link>
                     <Link href="/orders">我的订单</Link>
-                    <Link href="/admin/products">后台</Link>
+                    <Link href="/admin/orders">后台</Link>
                   </nav>
                   <AuthNav />
                 </div>

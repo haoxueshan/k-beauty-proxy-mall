@@ -98,6 +98,9 @@ function normalizeOrder(payload: any): Order {
   return {
     id: payload.id,
     userId: payload.userId ?? payload.user_id,
+    userEmail: payload.userEmail ?? payload.user_email ?? null,
+    userName: payload.userName ?? payload.user_name ?? null,
+    userPhone: payload.userPhone ?? payload.user_phone ?? null,
     orderNo: payload.orderNo ?? payload.order_no,
     status: payload.status,
     productTotalCny: payload.productTotalCny ?? payload.product_total_cny ?? payload.totalAmountCny ?? payload.total_amount_cny ?? 0,
@@ -265,6 +268,15 @@ export async function logoutUser(token: string): Promise<void> {
 
 export async function getMyOrders(token: string): Promise<Order[]> {
   const result = await authFetch<any[]>("/api/orders", {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  return result.map(normalizeOrder);
+}
+
+export async function getAdminOrders(token: string): Promise<Order[]> {
+  const result = await authFetch<any[]>("/api/admin/orders", {
     headers: {
       Authorization: `Bearer ${token}`
     }

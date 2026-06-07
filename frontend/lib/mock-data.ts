@@ -31,6 +31,9 @@ export type OrderItem = {
 export type Order = {
   id: string;
   userId?: string;
+  userEmail?: string | null;
+  userName?: string | null;
+  userPhone?: string | null;
   orderNo: string;
   status: string;
   productTotalCny: number;

@@ -38,7 +38,7 @@ export default function HomePage() {
               <p>4. 后台订单、抓取任务、物流管理骨架</p>
             </div>
           </div>
-          <Link href="/admin/products" className="cta mt-8 w-full">
+          <Link href="/admin/orders" className="cta mt-8 w-full">
             查看后台骨架
           </Link>
         </div>

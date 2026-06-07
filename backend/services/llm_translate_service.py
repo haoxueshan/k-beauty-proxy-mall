@@ -124,6 +124,74 @@ def _request_openai_translations(
     return TranslationBatchResult(translations=translations, provider="openai", model=model)
 
 
+def _clean_single_keyword(raw_output: str) -> str:
+    sanitized = _sanitize_model_output(raw_output)
+    sanitized = sanitized.strip().strip("\"'`")
+
+    try:
+        parsed = json.loads(sanitized)
+    except json.JSONDecodeError:
+      parsed = None
+
+    if isinstance(parsed, str):
+        sanitized = parsed
+    elif isinstance(parsed, list) and parsed and isinstance(parsed[0], str):
+        sanitized = parsed[0]
+    elif isinstance(parsed, dict):
+        value = parsed.get("keyword_ko") or parsed.get("keyword") or parsed.get("translation")
+        if isinstance(value, str):
+            sanitized = value
+
+    sanitized = re.sub(r"[\r\n\t]+", " ", sanitized)
+    sanitized = re.sub(r"[。.!！?？].*$", "", sanitized)
+    return " ".join(sanitized.split()).strip()
+
+
+def translate_search_keyword_to_korean(keyword: str, fallback_text: str | None = None) -> TranslationBatchResult:
+    normalized_keyword = " ".join(keyword.strip().split())
+    fallback = fallback_text or normalized_keyword
+    if not normalized_keyword:
+        return TranslationBatchResult(translations=[""], provider="fallback")
+    if HANGUL_PATTERN.search(normalized_keyword):
+        return TranslationBatchResult(translations=[normalized_keyword], provider="input")
+    if not is_openai_translation_enabled():
+        return TranslationBatchResult(translations=[fallback], provider="fallback")
+
+    client = _get_openai_client()
+    settings = get_translation_settings()
+    model = str(settings["model"])
+    if client is None:
+        return TranslationBatchResult(translations=[fallback], provider="fallback")
+
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "developer",
+                    "content": (
+                        "You translate e-commerce beauty search keywords for Olive Young Korea. "
+                        "Return exactly one concise Korean search keyword or phrase. "
+                        "Prefer common Korean shopping terms such as 선크림, 클렌징폼, 토너, 세럼, 틴트. "
+                        "Do not add explanations, punctuation, romanization, or Chinese."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Translate this search keyword to Korean: {normalized_keyword}",
+                },
+            ],
+        )
+        translated_keyword = _clean_single_keyword(getattr(response, "output_text", ""))
+    except Exception:
+        return TranslationBatchResult(translations=[fallback], provider="fallback")
+
+    if not translated_keyword or not HANGUL_PATTERN.search(translated_keyword):
+        return TranslationBatchResult(translations=[fallback], provider="fallback")
+
+    return TranslationBatchResult(translations=[translated_keyword], provider="openai", model=model)
+
+
 def translate_text(text: str, source_language: str, target_language: str, fallback_text: str | None = None) -> str:
     result = translate_texts(
         [text],

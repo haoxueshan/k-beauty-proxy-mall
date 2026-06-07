@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from crawler.oliveyoung_product import get_product_detail
 from crawler.oliveyoung_search import search_products_with_source, sync_homepage_products
 from schemas import (
+    AdminOrder,
     AuthResponse,
     CartItem,
     CartItemCreate,
@@ -38,6 +39,7 @@ from services.order_service import (
     delete_order,
     get_cart_items,
     list_cart_items,
+    list_admin_orders,
     list_orders,
     update_cart_item,
 )
@@ -245,6 +247,12 @@ def remove_cart_item(cart_item_id: str, user: UserPublic = Depends(get_current_u
 @app.get("/api/orders")
 def orders(user: UserPublic = Depends(get_current_user)):
     return list_orders(user.id)
+
+
+@app.get("/api/admin/orders", response_model=list[AdminOrder])
+def admin_orders(user: UserPublic = Depends(get_current_user)) -> list[AdminOrder]:
+    _ = user
+    return list_admin_orders()
 
 
 @app.delete("/api/orders/{order_id}", response_model=DeleteResponse)
