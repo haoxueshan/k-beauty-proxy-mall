@@ -29,6 +29,20 @@
 - `Python 项目管理器` 或 `Supervisor 管理器`
 - `PM2 管理器`（如果你想用 PM2 跑前端）
 
+仓库里已附带宝塔模板文件目录：
+
+```bash
+deploy/baota/
+```
+
+包含：
+
+- `frontend.ecosystem.config.js`
+- `backend.supervisor.conf`
+- `nginx.mall.example.com.conf`
+- `nginx.api.example.com.conf`
+- `bootstrap.sh`
+
 ## 2. 代码目录建议
 
 建议在宝塔服务器上放到：
@@ -133,6 +147,14 @@ node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
 - 监听 `127.0.0.1:3000`
 - 由 `Nginx` 反代对外提供服务
 
+如果使用仓库自带 PM2 配置，执行：
+
+```bash
+cd /www/wwwroot/k-beauty-proxy-mall
+pm2 start deploy/baota/frontend.ecosystem.config.js
+pm2 save
+```
+
 ### 方式 B：宝塔 Node 项目
 
 如果你使用宝塔的 Node 项目功能：
@@ -182,6 +204,12 @@ Supervisor 启动命令可以写成：
 /www/wwwroot/k-beauty-proxy-mall/backend
 ```
 
+如果使用仓库自带 Supervisor 模板，可直接参考：
+
+```bash
+deploy/baota/backend.supervisor.conf
+```
+
 ## 8. Playwright 额外依赖
 
 后端依赖里包含 `playwright`。如果线上爬虫功能要真正运行，部署后还要补浏览器依赖。
@@ -225,6 +253,12 @@ location / {
 }
 ```
 
+也可以直接参考：
+
+```bash
+deploy/baota/nginx.mall.example.com.conf
+```
+
 ### API 站点 `api.example.com`
 
 反代到：
@@ -237,6 +271,12 @@ location / {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 }
+```
+
+也可以直接参考：
+
+```bash
+deploy/baota/nginx.api.example.com.conf
 ```
 
 健康检查地址：
