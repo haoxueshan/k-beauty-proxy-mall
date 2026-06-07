@@ -20,7 +20,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 echo "[4/4] Installing Playwright browser dependencies"
-python -m playwright install || true
+python -m playwright install --with-deps chromium || python -m playwright install chromium || true
 
 echo "Bootstrap completed."
 echo "Next steps:"

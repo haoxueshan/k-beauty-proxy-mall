@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from crawler.oliveyoung_product import get_product_detail
-from crawler.oliveyoung_search import search_products_with_source, sync_homepage_products
+from crawler.oliveyoung_search import diagnose_oliveyoung_search, search_products_with_source, sync_homepage_products
 from schemas import (
     AdminOrder,
     AuthResponse,
@@ -205,6 +205,11 @@ def crawler_sync(payload: CrawlerSyncRequest) -> CrawlerSyncResponse:
         count=count,
         source=source,
     )
+
+
+@app.get("/api/crawler/oliveyoung/diagnostics")
+def crawler_diagnostics(keyword: str = "선크림"):
+    return diagnose_oliveyoung_search(keyword)
 
 
 @app.post("/api/cart/items", response_model=CartItemResponse)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import time
 from urllib.parse import quote_plus, urljoin
@@ -23,6 +24,21 @@ _product_cache: dict[str, object] = {
     "products": [],
 }
 _search_cache: dict[str, dict[str, object]] = {}
+
+
+def _playwright_proxy_config() -> dict[str, str] | None:
+    proxy_server = os.getenv("CRAWLER_PROXY_SERVER", "").strip()
+    if not proxy_server:
+        return None
+
+    proxy: dict[str, str] = {"server": proxy_server}
+    proxy_username = os.getenv("CRAWLER_PROXY_USERNAME", "").strip()
+    proxy_password = os.getenv("CRAWLER_PROXY_PASSWORD", "").strip()
+    if proxy_username:
+        proxy["username"] = proxy_username
+    if proxy_password:
+        proxy["password"] = proxy_password
+    return proxy
 
 
 def _seed_raw_products() -> list[RawCrawlerProduct]:
@@ -154,7 +170,19 @@ def _fetch_page_html(url: str, ready_selector: str | None = PRODUCT_LINK_SELECTO
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        launch_options: dict[str, object] = {
+            "headless": True,
+            "args": [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        }
+        proxy = _playwright_proxy_config()
+        if proxy:
+            launch_options["proxy"] = proxy
+
+        browser = playwright.chromium.launch(**launch_options)
         try:
             page = browser.new_page(
                 locale="ko-KR",
@@ -191,6 +219,47 @@ def _fetch_main_page_html() -> str:
 
 def _fetch_search_page_html(keyword_ko: str) -> str:
     return _fetch_page_html(_build_search_url(keyword_ko))
+
+
+def diagnose_oliveyoung_search(keyword: str = "선크림", limit: int = 3) -> dict[str, object]:
+    started_at = time.time()
+    keyword_ko = keyword_to_korean(keyword)
+    search_url = _build_search_url(keyword_ko)
+
+    try:
+        html = _fetch_search_page_html(keyword_ko)
+        raw_products = _parse_product_list_page_products(
+            html=html,
+            page_url=search_url,
+            limit=limit,
+        )
+        return {
+            "ok": bool(raw_products),
+            "keyword_original": keyword,
+            "keyword_ko": keyword_ko,
+            "search_url": search_url,
+            "product_count": len(raw_products),
+            "first_goods_no": raw_products[0].goods_no if raw_products else None,
+            "elapsed_seconds": round(time.time() - started_at, 2),
+            "proxy_enabled": bool(_playwright_proxy_config()),
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "keyword_original": keyword,
+            "keyword_ko": keyword_ko,
+            "search_url": search_url,
+            "product_count": 0,
+            "elapsed_seconds": round(time.time() - started_at, 2),
+            "proxy_enabled": bool(_playwright_proxy_config()),
+            "error": str(exc),
+            "hints": [
+                "Run: python -m playwright install chromium",
+                "Run on Ubuntu if dependencies are missing: python -m playwright install-deps",
+                "If Alibaba Cloud cannot access Olive Young reliably, set CRAWLER_PROXY_SERVER.",
+                "Make sure the backend process user can write/read the Playwright browser cache.",
+            ],
+        }
 
 
 def _fetch_detail_page_html(goods_no: str) -> str:

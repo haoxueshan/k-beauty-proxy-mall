@@ -1,3 +1,8 @@
+const apiProxyTarget = (
+  process.env.API_PROXY_TARGET ||
+  (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "")
+).replace(/\/+$/, "");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
@@ -7,6 +12,22 @@ const nextConfig = {
         hostname: "**"
       }
     ]
+  },
+  async rewrites() {
+    if (!apiProxyTarget) {
+      return [];
+    }
+
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiProxyTarget}/api/:path*`
+      },
+      {
+        source: "/health",
+        destination: `${apiProxyTarget}/health`
+      }
+    ];
   }
 };
 

@@ -10,7 +10,39 @@ import {
   type User
 } from "@/lib/mock-data";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+function normalizeApiBase(value?: string) {
+  const trimmed = value?.trim().replace(/\/+$/, "") ?? "";
+  return trimmed === "/" || trimmed === "." ? "" : trimmed;
+}
+
+export const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_BASE_URL);
+
+function appendApiPath(base: string, path: string) {
+  if (base.endsWith("/api") && path.startsWith("/api/")) {
+    return `${base}${path.slice(4)}`;
+  }
+  return `${base}${path}`;
+}
+
+function getServerApiBase() {
+  return normalizeApiBase(
+    process.env.INTERNAL_API_BASE_URL ||
+      process.env.API_PROXY_TARGET ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://127.0.0.1:8000"
+  );
+}
+
+function buildApiUrl(path: string) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (API_BASE) {
+    return appendApiPath(API_BASE, normalizedPath);
+  }
+  if (typeof window !== "undefined") {
+    return normalizedPath;
+  }
+  return appendApiPath(getServerApiBase(), normalizedPath);
+}
 
 export type ProductSearchResult = {
   keywordOriginal: string;
@@ -37,7 +69,7 @@ export type OrderCreateResult = {
 
 async function safeFetch<T>(path: string, fallback: T): Promise<T> {
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(buildApiUrl(path), {
       cache: "no-store"
     });
     if (!response.ok) {
@@ -50,7 +82,7 @@ async function safeFetch<T>(path: string, fallback: T): Promise<T> {
 }
 
 async function liveFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     cache: "no-store"
   });
   const payload = await response.json().catch(() => ({}));
@@ -208,7 +240,7 @@ export async function getOrders(): Promise<Order[]> {
 }
 
 async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",

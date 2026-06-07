@@ -53,6 +53,7 @@ uvicorn main:app --reload
 Detailed setup notes: `docs/SUPABASE_SETUP.md`
 
 Deployment notes for Alibaba Cloud ECS + BaoTa Panel: `docs/BAOTA_DEPLOY.md`
+Runtime troubleshooting checklist for BaoTa: `docs/BAOTA_RUNTIME_CHECKLIST.md`
 
 ## Translation module
 
