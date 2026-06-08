@@ -103,7 +103,7 @@ http://127.0.0.1:8000/health
 Online Demo / 线上演示地址:
 
 ```text
-https://olive.bestbing.cn
+https://chan-downloads-briefly-apt.trycloudflare.com/
 ```
 
 배포 구조 / 部署结构:
