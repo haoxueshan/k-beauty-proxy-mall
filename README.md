@@ -121,11 +121,11 @@ https://chan-downloads-briefly-apt.trycloudflare.com/
 프로젝트 실행 화면입니다.
 以下是项目运行截图。
 
-```markdown
+
 ![Home Page](docs/screenshots/home.png)
 ![Search Page](docs/screenshots/search.png)
 ![Product Detail Page](docs/screenshots/detail.png)
-```
+
 
 ---
 
