@@ -86,6 +86,12 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+If you need test dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 Backend health check / 后端健康检查:
 
 ```text

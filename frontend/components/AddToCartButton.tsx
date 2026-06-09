@@ -42,7 +42,7 @@ export function AddToCartButton({ productId, className = "cta" }: Props) {
   return (
     <div className="space-y-2">
       <button type="button" className={className} onClick={handleAdd} disabled={status === "saving"}>
-        {status === "saving" ? "加入中..." : status === "saved" ? "已加入购物车" : "加入代购车"}
+        {status === "saving" ? "加入中..." : status === "saved" ? "已加入购物车" : "加入购物车"}
       </button>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>

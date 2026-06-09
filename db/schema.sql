@@ -7,6 +7,7 @@ create table if not exists users (
   password_hash text not null,
   name text not null,
   phone text,
+  is_admin boolean not null default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

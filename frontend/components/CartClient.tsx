@@ -69,7 +69,7 @@ export function CartClient() {
     [items]
   );
   const totalAmount = useMemo(
-    () => items.reduce((sum, item) => sum + item.product.proxyPriceCny * item.quantity, 0),
+    () => items.reduce((sum, item) => sum + item.product.priceCny * item.quantity, 0),
     [items]
   );
 
@@ -156,7 +156,7 @@ export function CartClient() {
   }
 
   return (
-    <AuthGate title="登录后使用代购购物车" description="购物车、下单和后续订单追踪需要先绑定到你的账号。">
+    <AuthGate title="登录后使用购物车" description="购物车、下单和后续订单追踪需要先绑定到你的账号。">
       {isLoading ? (
         <div className="panel mt-8 p-8">
           <p className="text-lg font-semibold">正在加载购物车...</p>
@@ -207,10 +207,10 @@ export function CartClient() {
             ))}
           </div>
           <aside className="panel h-fit p-6">
-            <h2 className="text-xl font-semibold">提交代购订单</h2>
+            <h2 className="text-xl font-semibold">提交商品订单</h2>
             <div className="mt-6 space-y-3 text-sm">
               <div className="flex justify-between">
-                <span>商品预估总额</span>
+                <span>商品参考总额</span>
                 <span>¥{totalAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">

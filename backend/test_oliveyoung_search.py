@@ -16,7 +16,11 @@ TEST_KEYWORDS = [
 
 
 def _show_search_result(keyword: str):
-    keyword_ko, products, source, error = search_products_with_source(keyword)
+    response = search_products_with_source(keyword)
+    keyword_ko = response.keyword_ko
+    products = response.items
+    source = response.source
+    error = response.error
 
     print("=" * 80)
     print("Keyword:", keyword)
@@ -34,23 +38,24 @@ def _show_search_result(keyword: str):
         print("Chinese title:", product.title_zh)
         print("KRW price:", product.sale_price_krw)
         print("CNY reference price:", product.price_cny)
-        print("Proxy price:", product.proxy_price_cny)
         print("Link:", product.source_url)
+        print("Meta:", product.metadata.model_dump())
 
-    return keyword_ko, products, source, error
+    return response
 
 
 def test_oliveyoung_search_returns_products() -> None:
     for keyword in TEST_KEYWORDS:
-        keyword_ko, products, source, error = _show_search_result(keyword)
+        response = _show_search_result(keyword)
 
-        assert keyword_ko
-        assert error is None
-        assert source != "fallback-seed"
-        assert products, f"No Olive Young products returned for keyword: {keyword}"
-        assert products[0].id.startswith("oy-")
-        assert products[0].goods_no
-        assert products[0].source_url
+        assert response.keyword_ko
+        assert response.error is None
+        assert response.source != "fallback-seed"
+        assert response.items, f"No Olive Young products returned for keyword: {keyword}"
+        assert not response.fallback_items
+        assert response.items[0].id.startswith("oy-")
+        assert response.items[0].goods_no
+        assert response.items[0].source_url
 
 
 def main() -> None:

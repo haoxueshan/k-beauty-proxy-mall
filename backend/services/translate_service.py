@@ -221,4 +221,28 @@ def translate_titles_to_chinese(titles_ko: list[str]) -> TranslationBatchResult:
 
 
 def summarize_product(title_zh: str, category_zh: str) -> str:
-    return f"{title_zh} 属于{category_zh}类目，适合作为当前代购下单与报价展示的候选商品。"
+    return f"{title_zh} 属于{category_zh}类目，适合作为当前商品下单与价格参考展示的候选商品。"
+
+
+def estimate_translation_confidence(
+    *,
+    provider: str,
+    original_text: str,
+    translated_text: str,
+) -> float:
+    normalized_original = " ".join(original_text.strip().split())
+    normalized_translated = " ".join(translated_text.strip().split())
+
+    if not normalized_translated:
+        return 0.1
+    if provider == "openai":
+        return 0.93
+    if provider == "cache":
+        return 0.88
+    if provider == "fallback":
+        if normalized_translated == normalized_original:
+            return 0.22
+        return 0.58
+    if provider == "input":
+        return 0.98
+    return 0.45

@@ -9,7 +9,7 @@ export default function SearchLoading() {
             <p className="eyebrow">Live Search</p>
             <h1 className="mt-3 text-3xl font-semibold">正在抓取 Olive Young 数据</h1>
             <p className="subtle mt-2">
-              已收到搜索请求，正在连接后端爬虫、翻译商品标题并计算代购价格，请稍等片刻。
+              已收到搜索请求，正在连接后端爬虫、翻译商品标题并计算人民币参考价，请稍等片刻。
             </p>
           </div>
           <div className="loading-orbit" aria-hidden="true">

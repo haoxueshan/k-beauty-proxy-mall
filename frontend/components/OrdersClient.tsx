@@ -80,7 +80,7 @@ export function OrdersClient() {
   }
 
   return (
-    <AuthGate title="登录后查看订单" description="注册或登录后，才能查看你的代购订单、报价状态和物流进度。">
+    <AuthGate title="登录后查看订单" description="注册或登录后，才能查看你的商品订单、报价状态和物流进度。">
       {isLoading ? (
         <div className="panel p-8">
           <p className="text-lg font-semibold">正在加载订单…</p>
@@ -93,7 +93,7 @@ export function OrdersClient() {
       ) : orders.length === 0 ? (
         <div className="panel p-8">
           <p className="text-lg font-semibold">你还没有订单</p>
-          <p className="subtle mt-2">完成商品加购并提交代购单后，订单会出现在这里。</p>
+          <p className="subtle mt-2">完成商品加购并提交订单后，订单会出现在这里。</p>
         </div>
       ) : (
         <section className="mt-8 space-y-5">
@@ -140,7 +140,7 @@ export function OrdersClient() {
                               <p className="subtle text-sm">{item.titleKo}</p>
                               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                                 <span>数量：{item.quantity}</span>
-                                <span>单价：¥{item.unitPriceCny.toFixed(2)}</span>
+                                <span>人民币参考单价：¥{item.unitPriceCny.toFixed(2)}</span>
                                 <span>规格：{item.selectedOption || "默认规格"}</span>
                               </div>
                             </div>
@@ -156,7 +156,7 @@ export function OrdersClient() {
                   <div className="rounded-2xl border border-black/10 bg-white/60 p-4">
                     <h3 className="text-base font-semibold">金额明细</h3>
                     <div className="mt-3 space-y-2">
-                      <MoneyRow label="商品金额" value={order.productTotalCny} />
+                      <MoneyRow label="商品参考金额" value={order.productTotalCny} />
                       <MoneyRow label="服务费" value={order.serviceFeeCny} />
                       <MoneyRow label="国际运费" value={order.internationalShippingFeeCny} />
                       <MoneyRow label="包装费" value={order.packageFeeCny} />

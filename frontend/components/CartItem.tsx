@@ -92,9 +92,9 @@ export function CartItem({
       <div className="flex flex-col justify-between gap-3 md:w-[180px] md:items-end">
         <div className="text-right">
           <p className="text-lg font-bold text-coral">
-            ¥{(product.proxyPriceCny * Math.max(normalizedQuantity || quantity, 1)).toFixed(2)}
+            ¥{(product.priceCny * Math.max(normalizedQuantity || quantity, 1)).toFixed(2)}
           </p>
-          <p className="text-sm subtle">单件参考价 ¥{product.proxyPriceCny.toFixed(2)}</p>
+          <p className="text-sm subtle">人民币参考单价 ¥{product.priceCny.toFixed(2)}</p>
         </div>
         <div className="flex flex-wrap gap-2 md:justify-end">
           <button className="cta ghost" type="button" onClick={handleSave} disabled={!canSave}>

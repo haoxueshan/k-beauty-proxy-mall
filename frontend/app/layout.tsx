@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthNav } from "@/components/AuthNav";
 import { AuthProvider } from "@/components/AuthProvider";
+import { MainNav } from "@/components/MainNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Olive Young 中文代购平台",
-  description: "面向中国用户的 Olive Young 中文搜索与代购平台 MVP"
+  title: "Olive Young 中文商品平台",
+  description: "面向中国用户的 Olive Young 中文搜索与商品订单平台 MVP"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,12 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   OLIVE YOUNG CN
                 </Link>
                 <div className="flex flex-col gap-3 md:items-end">
-                  <nav className="flex flex-wrap gap-3 text-sm">
-                    <Link href="/search">搜索</Link>
-                    <Link href="/cart">购物车</Link>
-                    <Link href="/orders">我的订单</Link>
-                    <Link href="/admin/orders">后台</Link>
-                  </nav>
+                  <MainNav />
                   <AuthNav />
                 </div>
               </div>

@@ -25,6 +25,7 @@ def _serialize_user(record: dict) -> UserPublic:
         email=record["email"],
         name=record["name"],
         phone=record.get("phone"),
+        is_admin=bool(record.get("is_admin")),
         created_at=datetime.fromisoformat(record["created_at"]),
     )
 
@@ -67,7 +68,7 @@ def login_user(payload: LoginRequest) -> tuple[str, UserPublic]:
     email = _normalize_email(payload.email)
     users = select_rows(
         "users",
-        columns="id,email,name,phone,password_salt,password_hash,created_at",
+        columns="*",
         filters={"email": f"eq.{email}"},
         limit=1,
     )
@@ -100,7 +101,7 @@ def get_user_by_token(token: str) -> UserPublic:
 
     users = select_rows(
         "users",
-        columns="id,email,name,phone,created_at",
+        columns="*",
         filters={"id": f"eq.{session['user_id']}"},
         limit=1,
     )

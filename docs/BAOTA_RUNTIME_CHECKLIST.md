@@ -7,7 +7,7 @@ Use this checklist when the site works locally but fails after uploading to Alib
 - Frontend Next.js: `127.0.0.1:3000`
 - Backend FastAPI: `127.0.0.1:8000`
 - Public access: only `80` and `443`
-- Nginx should proxy `/` to frontend and `/api/` to backend.
+- Standard deployment: Nginx proxies `/` to frontend and `/api/`, `/health`, `/health/ready` to backend
 
 Do not expose `3000` or `8000` directly to the public internet.
 
@@ -33,20 +33,27 @@ For separate API domain deployment, set this before `npm run build`:
 NEXT_PUBLIC_API_BASE_URL=https://api.your-domain.com
 ```
 
-Important: `NEXT_PUBLIC_*` variables are baked into the frontend during `npm run build`.
-If you changed them after building, run `npm run build` again and restart PM2.
-`INTERNAL_API_BASE_URL` is used by Next.js server-side rendering and must be an absolute URL.
+Important:
+
+- `NEXT_PUBLIC_*` variables are baked into the frontend during `npm run build`
+- If you changed them after building, run `npm run build` again and restart PM2
+- `INTERNAL_API_BASE_URL` is used by Next.js server-side rendering and must be an absolute URL
 
 ## 3. Backend Environment
 
 Backend `.env` should include:
 
 ```env
+APP_ENV=production
+LOG_LEVEL=INFO
 HOST=127.0.0.1
 PORT=8000
+PORT_AUTO_FALLBACK=false
+UVICORN_RELOAD=false
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxx
 ALLOWED_ORIGINS=https://your-domain.com
+TRUSTED_HOSTS=your-domain.com,www.your-domain.com
 OPENAI_API_KEY=sk-xxx
 ```
 
@@ -69,8 +76,8 @@ python -m playwright install --with-deps chromium
 If BaoTa cannot install system dependencies automatically, run:
 
 ```bash
-python -m playwright install-deps
 python -m playwright install chromium
+python -m playwright install-deps
 ```
 
 ## 5. Smoke Tests On The Server
@@ -79,24 +86,32 @@ Run from the ECS server:
 
 ```bash
 curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/health/ready
 curl http://127.0.0.1:3000
 curl https://your-domain.com/health
 curl "https://your-domain.com/api/oliveyoung/search?q=牙膏"
 curl "https://your-domain.com/api/crawler/oliveyoung/diagnostics?keyword=牙膏"
 ```
 
+Or use the included script:
+
+```bash
+deploy/baota/smoke-test.sh your-domain.com
+```
+
 Expected:
 
-- `/health` returns `status: ok`.
-- `/api/oliveyoung/search` returns `source` and `items`.
-- `/api/crawler/oliveyoung/diagnostics` returns `ok: true` and `product_count > 0`.
+- `/health` returns `status: ok`
+- `/health/ready` returns HTTP `200` when required backend config is complete
+- `/api/oliveyoung/search` returns `source` and `items`
+- `/api/crawler/oliveyoung/diagnostics` returns `ok: true` and `product_count > 0`
 
 If diagnostics returns `ok: false`, read `error` and `hints`. It is usually one of:
 
-- Playwright Chromium is not installed.
-- Linux system libraries are missing.
-- The backend process user cannot access the Playwright browser cache.
-- Alibaba Cloud outbound IP cannot access Olive Young reliably and needs a proxy.
+- Playwright Chromium is not installed
+- Linux system libraries are missing
+- The backend process user cannot access the Playwright browser cache
+- Alibaba Cloud outbound IP cannot access Olive Young reliably and needs a proxy
 
 ## 6. Restart Order
 

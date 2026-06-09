@@ -1,22 +1,24 @@
-from dataclasses import dataclass
-
-
-@dataclass
-class PricingRule:
-    exchange_rate: float = 0.0053
-    service_fee_min: float = 20
-    service_fee_ratio: float = 0.10
-    international_shipping_fee: float = 25
-    package_fee: float = 5
-
-
 def calculate_cny_reference(krw_price: int, exchange_rate: float = 0.0053) -> float:
     return round(krw_price * exchange_rate, 2)
 
 
-def calculate_proxy_price(krw_price: int, pricing_rule: PricingRule | None = None) -> float:
-    rule = pricing_rule or PricingRule()
-    product_cny = calculate_cny_reference(krw_price, rule.exchange_rate)
-    service_fee = max(product_cny * rule.service_fee_ratio, rule.service_fee_min)
-    total = product_cny + service_fee + rule.international_shipping_fee + rule.package_fee
-    return round(total, 2)
+def estimate_price_confidence(
+    *,
+    sale_price_krw: int | None,
+    original_price_krw: int | None,
+    source_type: str,
+) -> float:
+    if not sale_price_krw or sale_price_krw <= 0:
+        return 0.15
+
+    if source_type == "live_detail":
+        return 0.97 if original_price_krw and original_price_krw > 0 else 0.9
+    if source_type == "live_search":
+        return 0.88 if original_price_krw and original_price_krw > 0 else 0.78
+    if source_type == "live_main":
+        return 0.82 if original_price_krw and original_price_krw > 0 else 0.72
+    if source_type == "cache":
+        return 0.76 if original_price_krw and original_price_krw > 0 else 0.68
+    if source_type == "seed":
+        return 0.35
+    return 0.6

@@ -47,7 +47,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       <p className="eyebrow">{mode === "login" ? "Sign In" : "Create Account"}</p>
       <h1 className="mt-3 text-3xl font-semibold">{mode === "login" ? "用户登录" : "用户注册"}</h1>
       <p className="subtle mt-2">
-        {mode === "login" ? "登录后可以查看你的订单和后续代购进度。" : "注册后即可保存账号状态，继续下单和查看订单。"}
+        {mode === "login" ? "登录后可以查看你的订单和后续处理进度。" : "注册后即可保存账号状态，继续下单和查看订单。"}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">

@@ -7,6 +7,7 @@ import {
   type Order,
   type OrderItem,
   type Product,
+  type ProductMetadata,
   type User
 } from "@/lib/mock-data";
 
@@ -50,7 +51,31 @@ export type ProductSearchResult = {
   count: number;
   items: Product[];
   source: string;
+  sourceType: string;
+  resultMeta: ResultSetMeta;
+  fallbackCount: number;
+  fallbackItems: Product[];
+  fallbackMeta?: ResultSetMeta | null;
+  page: number;
+  pageSize: number;
+  sort: string;
+  hasNext: boolean;
+  nextPage?: number | null;
+  oliveyoungPageUrl?: string | null;
+  sourceRankStart?: number | null;
+  syncedPages: number[];
   error?: string;
+};
+
+export type ResultSetMeta = {
+  source: string;
+  sourceType: string;
+  cacheLayer: string;
+  lastSyncedAt?: string | null;
+  itemCount: number;
+  completenessScore: number;
+  priceConfidence: number;
+  translationConfidence: number;
 };
 
 export type CrawlerSyncResult = {
@@ -103,12 +128,77 @@ function normalizeProduct(payload: any): Product {
     imageUrl: payload.imageUrl ?? payload.image_url,
     salePriceKrw: payload.salePriceKrw ?? payload.sale_price_krw,
     originalPriceKrw: payload.originalPriceKrw ?? payload.original_price_krw,
-    priceCny: payload.priceCny ?? payload.price_cny,
-    proxyPriceCny: payload.proxyPriceCny ?? payload.proxy_price_cny,
+    priceCny: payload.priceCny ?? payload.price_cny ?? payload.proxyPriceCny ?? payload.proxy_price_cny ?? 0,
+    proxyPriceCny: payload.proxyPriceCny ?? payload.proxy_price_cny ?? undefined,
     categoryZh: payload.categoryZh ?? payload.category_zh,
     aiSummary: payload.aiSummary ?? payload.ai_summary,
     riskTips: payload.riskTips ?? payload.risk_tips ?? [],
-    sourceUrl: payload.sourceUrl ?? payload.source_url
+    sourceUrl: payload.sourceUrl ?? payload.source_url,
+    metadata: normalizeProductMetadata(payload.metadata, payload)
+  };
+}
+
+function normalizeProductMetadata(metadataPayload: any, productPayload?: any): ProductMetadata {
+  const source = metadataPayload ?? {};
+  const fallback = productPayload ?? {};
+  return {
+    lastSyncedAt:
+      source.lastSyncedAt ??
+      source.last_synced_at ??
+      fallback.lastSyncedAt ??
+      fallback.last_synced_at ??
+      null,
+    sourceType:
+      source.sourceType ??
+      source.source_type ??
+      fallback.sourceType ??
+      fallback.source_type ??
+      undefined,
+    completenessScore:
+      source.completenessScore ??
+      source.completeness_score ??
+      fallback.completenessScore ??
+      fallback.completeness_score ??
+      undefined,
+    priceConfidence:
+      source.priceConfidence ??
+      source.price_confidence ??
+      fallback.priceConfidence ??
+      fallback.price_confidence ??
+      undefined,
+    translationConfidence:
+      source.translationConfidence ??
+      source.translation_confidence ??
+      fallback.translationConfidence ??
+      fallback.translation_confidence ??
+      undefined,
+    sourcePage: source.sourcePage ?? source.source_page ?? fallback.sourcePage ?? fallback.source_page ?? null,
+    sourceRank: source.sourceRank ?? source.source_rank ?? fallback.sourceRank ?? fallback.source_rank ?? null,
+    keywordKo: source.keywordKo ?? source.keyword_ko ?? fallback.keywordKo ?? fallback.keyword_ko ?? null,
+    syncedAt: source.syncedAt ?? source.synced_at ?? fallback.syncedAt ?? fallback.synced_at ?? null,
+    rawPriceText:
+      source.rawPriceText ?? source.raw_price_text ?? fallback.rawPriceText ?? fallback.raw_price_text ?? null
+  };
+}
+
+function normalizeResultSetMeta(
+  payload: any,
+  defaults: {
+    source: string;
+    sourceType: string;
+    itemCount: number;
+  }
+): ResultSetMeta {
+  const meta = payload ?? {};
+  return {
+    source: meta.source ?? defaults.source,
+    sourceType: meta.sourceType ?? meta.source_type ?? defaults.sourceType,
+    cacheLayer: meta.cacheLayer ?? meta.cache_layer ?? "none",
+    lastSyncedAt: meta.lastSyncedAt ?? meta.last_synced_at ?? null,
+    itemCount: meta.itemCount ?? meta.item_count ?? defaults.itemCount,
+    completenessScore: meta.completenessScore ?? meta.completeness_score ?? 0,
+    priceConfidence: meta.priceConfidence ?? meta.price_confidence ?? 0,
+    translationConfidence: meta.translationConfidence ?? meta.translation_confidence ?? 0
   };
 }
 
@@ -158,6 +248,7 @@ function normalizeUser(payload: any): User {
     email: payload.email,
     name: payload.name,
     phone: payload.phone ?? null,
+    isAdmin: payload.isAdmin ?? payload.is_admin ?? false,
     createdAt: payload.createdAt ?? payload.created_at
   };
 }
@@ -174,14 +265,61 @@ function normalizeCartEntry(payload: any): CartEntry {
   };
 }
 
+function normalizeCartDisplayItem(payload: any): CartDisplayItem | null {
+  if (!payload?.product) {
+    return null;
+  }
+  return {
+    ...normalizeCartEntry(payload),
+    product: normalizeProduct(payload.product)
+  };
+}
+
 function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductSearchResult {
   const items = Array.isArray(payload.items) ? payload.items.map(normalizeProduct) : fallbackItems;
+  const normalizedFallbackItems = Array.isArray(payload.fallbackItems)
+    ? payload.fallbackItems.map(normalizeProduct)
+    : Array.isArray(payload.fallback_items)
+      ? payload.fallback_items.map(normalizeProduct)
+      : [];
+  const source = payload.source ?? "oliveyoung-live";
+  const sourceType =
+    payload.sourceType ??
+    payload.source_type ??
+    payload.resultMeta?.sourceType ??
+    payload.result_meta?.source_type ??
+    "live_search";
+  const resultMeta = normalizeResultSetMeta(payload.resultMeta ?? payload.result_meta, {
+    source,
+    sourceType,
+    itemCount: items.length
+  });
+  const fallbackMetaPayload = payload.fallbackMeta ?? payload.fallback_meta;
   return {
     keywordOriginal: payload.keywordOriginal ?? payload.keyword_original ?? payload.keyword ?? "",
     keywordKo: payload.keywordKo ?? payload.keyword_ko ?? "",
     count: payload.count ?? items.length,
     items,
-    source: payload.source ?? "oliveyoung-live",
+    source,
+    sourceType,
+    resultMeta,
+    fallbackCount: payload.fallbackCount ?? payload.fallback_count ?? normalizedFallbackItems.length,
+    fallbackItems: normalizedFallbackItems,
+    fallbackMeta: fallbackMetaPayload
+      ? normalizeResultSetMeta(fallbackMetaPayload, {
+          source: fallbackMetaPayload.source ?? "fallback-seed",
+          sourceType: fallbackMetaPayload.sourceType ?? fallbackMetaPayload.source_type ?? "seed",
+          itemCount: normalizedFallbackItems.length
+        })
+      : null,
+    page: payload.page ?? 1,
+    pageSize: payload.pageSize ?? payload.page_size ?? 24,
+    sort: payload.sort ?? "ranking",
+    hasNext: payload.hasNext ?? payload.has_next ?? false,
+    nextPage: payload.nextPage ?? payload.next_page ?? null,
+    oliveyoungPageUrl: payload.oliveyoungPageUrl ?? payload.oliveyoung_page_url ?? null,
+    sourceRankStart: payload.sourceRankStart ?? payload.source_rank_start ?? null,
+    syncedPages: payload.syncedPages ?? payload.synced_pages ?? [],
     error: payload.error ?? undefined
   };
 }
@@ -196,9 +334,18 @@ function normalizeCrawlerSyncResult(payload: any): CrawlerSyncResult {
   };
 }
 
-export async function searchProductResults(keyword: string): Promise<ProductSearchResult> {
+export async function searchProductResults(
+  keyword: string,
+  options?: { page?: number; pageSize?: number; sort?: string }
+): Promise<ProductSearchResult> {
   try {
-    const data = await liveFetch<any>(`/api/oliveyoung/search?q=${encodeURIComponent(keyword)}`);
+    const params = new URLSearchParams({
+      q: keyword,
+      page: String(options?.page ?? 1),
+      page_size: String(options?.pageSize ?? 24),
+      sort: options?.sort ?? "ranking"
+    });
+    const data = await liveFetch<any>(`/api/oliveyoung/search?${params.toString()}`);
     return normalizeSearchResult(data, []);
   } catch (requestError) {
     return {
@@ -207,6 +354,23 @@ export async function searchProductResults(keyword: string): Promise<ProductSear
       count: 0,
       items: [],
       source: "oliveyoung-live-error",
+      sourceType: "live_search",
+      resultMeta: normalizeResultSetMeta(null, {
+        source: "oliveyoung-live-error",
+        sourceType: "live_search",
+        itemCount: 0
+      }),
+      fallbackCount: 0,
+      fallbackItems: [],
+      fallbackMeta: null,
+      page: options?.page ?? 1,
+      pageSize: options?.pageSize ?? 24,
+      sort: options?.sort ?? "ranking",
+      hasNext: false,
+      nextPage: null,
+      oliveyoungPageUrl: null,
+      sourceRankStart: null,
+      syncedPages: [],
       error: requestError instanceof Error ? requestError.message : "Live crawler request failed"
     };
   }
@@ -217,12 +381,19 @@ export async function searchProducts(keyword: string): Promise<Product[]> {
   return result.items;
 }
 
-export async function syncOliveYoungProducts(keyword: string, limit = 24): Promise<CrawlerSyncResult> {
+export async function syncOliveYoungProducts(
+  keyword: string,
+  limit = 24,
+  options?: { page?: number; pageSize?: number; sort?: string }
+): Promise<CrawlerSyncResult> {
   const result = await authFetch<any>("/api/crawler/oliveyoung/sync", {
     method: "POST",
     body: JSON.stringify({
       keyword,
-      limit
+      limit,
+      page: options?.page ?? 1,
+      page_size: options?.pageSize ?? limit,
+      sort: options?.sort ?? "ranking"
     })
   });
   return normalizeCrawlerSyncResult(result);
@@ -366,27 +537,13 @@ export async function addCartItem(
 }
 
 export async function getCartItems(token: string): Promise<CartDisplayItem[]> {
-  const result = await authFetch<any[]>("/api/cart/items", {
+  const result = await authFetch<any[]>("/api/cart/items/display", {
     headers: {
       Authorization: `Bearer ${token}`
     }
   });
 
-  const entries = result.map(normalizeCartEntry);
-  const displayItems = await Promise.all(
-    entries.map(async (entry) => {
-      const product = await getProduct(entry.productId);
-      if (!product) {
-        return null;
-      }
-      return {
-        ...entry,
-        product
-      };
-    })
-  );
-
-  return displayItems.filter((item): item is CartDisplayItem => item !== null);
+  return result.map(normalizeCartDisplayItem).filter((item): item is CartDisplayItem => item !== null);
 }
 
 export async function deleteCartItem(token: string, cartItemId: string): Promise<void> {

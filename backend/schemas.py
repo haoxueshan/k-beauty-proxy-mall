@@ -4,6 +4,30 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class ProductMetadata(BaseModel):
+    last_synced_at: datetime | None = None
+    source_type: str = "live_search"
+    completeness_score: float = 0
+    price_confidence: float = 0
+    translation_confidence: float = 0
+    source_page: int | None = None
+    source_rank: int | None = None
+    keyword_ko: str | None = None
+    synced_at: datetime | None = None
+    raw_price_text: str | None = None
+
+
+class ResultSetMeta(BaseModel):
+    source: str = "oliveyoung-live"
+    source_type: str = "live_search"
+    cache_layer: str = "none"
+    last_synced_at: datetime | None = None
+    item_count: int = 0
+    completeness_score: float = 0
+    price_confidence: float = 0
+    translation_confidence: float = 0
+
+
 class Product(BaseModel):
     id: str
     source: str = "oliveyoung"
@@ -21,6 +45,7 @@ class Product(BaseModel):
     category_zh: str
     ai_summary: str
     risk_tips: list[str] = Field(default_factory=list)
+    metadata: ProductMetadata = Field(default_factory=ProductMetadata)
 
 
 class SearchResponse(BaseModel):
@@ -29,12 +54,28 @@ class SearchResponse(BaseModel):
     count: int
     items: list[Product]
     source: str = "oliveyoung-live"
+    source_type: str = "live_search"
+    result_meta: ResultSetMeta = Field(default_factory=ResultSetMeta)
+    fallback_count: int = 0
+    fallback_items: list[Product] = Field(default_factory=list)
+    fallback_meta: ResultSetMeta | None = None
+    page: int = 1
+    page_size: int = 24
+    sort: str = "ranking"
+    has_next: bool = False
+    next_page: int | None = None
+    oliveyoung_page_url: str | None = None
+    source_rank_start: int | None = None
+    synced_pages: list[int] = Field(default_factory=list)
     error: str | None = None
 
 
 class CrawlerSyncRequest(BaseModel):
     keyword: str
     limit: int = 30
+    page: int = Field(default=1, ge=1)
+    page_size: int | None = Field(default=None, ge=1, le=60)
+    sort: str = "ranking"
 
 
 class CrawlerSyncResponse(BaseModel):
@@ -116,6 +157,10 @@ class Order(BaseModel):
     created_at: datetime
 
 
+class CartDisplayItem(CartItem):
+    product: Product
+
+
 class AdminOrder(Order):
     user_email: str | None = None
     user_name: str | None = None
@@ -134,11 +179,26 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
+class ReadinessCheck(BaseModel):
+    name: str
+    status: str
+    detail: str | None = None
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    service: str
+    environment: str
+    timestamp: datetime
+    checks: list[ReadinessCheck] = Field(default_factory=list)
+
+
 class UserPublic(BaseModel):
     id: str
     email: str
     name: str
     phone: str | None = None
+    is_admin: bool = False
     created_at: datetime
 
 

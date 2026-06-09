@@ -16,7 +16,7 @@ export default function AdminProductsPage() {
               <th className="px-4 py-4">商品</th>
               <th className="px-4 py-4">品牌</th>
               <th className="px-4 py-4">韩元价</th>
-              <th className="px-4 py-4">代购价</th>
+              <th className="px-4 py-4">人民币参考价</th>
               <th className="px-4 py-4">分类</th>
             </tr>
           </thead>
@@ -26,7 +26,7 @@ export default function AdminProductsPage() {
                 <td className="px-4 py-4">{product.titleZh}</td>
                 <td className="px-4 py-4">{product.brandZh}</td>
                 <td className="px-4 py-4">KRW {product.salePriceKrw.toLocaleString()}</td>
-                <td className="px-4 py-4">¥{product.proxyPriceCny.toFixed(2)}</td>
+                <td className="px-4 py-4">¥{product.priceCny.toFixed(2)}</td>
                 <td className="px-4 py-4">{product.categoryZh}</td>
               </tr>
             ))}

@@ -3,8 +3,9 @@ module.exports = {
     {
       name: "k-beauty-frontend",
       cwd: "/www/wwwroot/k-beauty-proxy-mall/frontend",
-      script: "node_modules/next/dist/bin/next",
-      args: "start --hostname 127.0.0.1 --port 3000",
+      script: "npm",
+      args: "run start:prod",
+      interpreter: "none",
       env: {
         NODE_ENV: "production",
         API_PROXY_TARGET: "http://127.0.0.1:8000"

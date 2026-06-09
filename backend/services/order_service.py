@@ -224,7 +224,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
             continue
 
         quantity = int(cart_item.get("quantity") or 1)
-        unit_price = float(product.proxy_price_cny)
+        unit_price = float(product.price_cny)
         subtotal = round(unit_price * quantity, 2)
         total_amount += subtotal
         order_items_payload.append(

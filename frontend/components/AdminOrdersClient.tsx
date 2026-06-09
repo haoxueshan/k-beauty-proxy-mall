@@ -102,7 +102,7 @@ export function AdminOrdersClient() {
   }
 
   return (
-    <AuthGate title="登录后查看后台订单" description="后台订单会展示平台内所有用户提交的代购订单。">
+    <AuthGate title="登录后查看后台订单" description="后台订单会展示平台内所有用户提交的商品订单。">
       {isLoading ? (
         <div className="panel mt-8 flex items-center gap-3 p-8">
           <span className="mini-spinner" aria-hidden="true" />
@@ -130,7 +130,7 @@ export function AdminOrdersClient() {
           {orders.length === 0 ? (
             <div className="panel p-8">
               <p className="text-lg font-semibold">当前还没有用户订单</p>
-              <p className="subtle mt-2">用户从购物车提交代购单后，会自动出现在这个后台列表里。</p>
+              <p className="subtle mt-2">用户从购物车提交订单后，会自动出现在这个后台列表里。</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -203,7 +203,7 @@ export function AdminOrdersClient() {
                           </DetailBlock>
 
                           <DetailBlock title="金额明细">
-                            <p>商品金额：{formatMoney(order.productTotalCny)}</p>
+                            <p>商品参考金额：{formatMoney(order.productTotalCny)}</p>
                             <p>服务费：{formatMoney(order.serviceFeeCny)}</p>
                             <p>国际运费：{formatMoney(order.internationalShippingFeeCny)}</p>
                             <p>包装费：{formatMoney(order.packageFeeCny)}</p>
@@ -224,7 +224,7 @@ export function AdminOrdersClient() {
                                   <p className="subtle mt-1 text-sm">{item.titleKo}</p>
                                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                                     <span>数量：{item.quantity}</span>
-                                    <span>单价：{formatMoney(item.unitPriceCny)}</span>
+                                    <span>人民币参考单价：{formatMoney(item.unitPriceCny)}</span>
                                     <span>小计：{formatMoney(item.subtotalCny)}</span>
                                     <span>规格：{item.selectedOption || "默认规格"}</span>
                                   </div>
