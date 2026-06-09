@@ -158,8 +158,12 @@ export function CartClient() {
   return (
     <AuthGate title="登录后使用购物车" description="购物车、下单和后续订单追踪需要先绑定到你的账号。">
       {isLoading ? (
-        <div className="panel mt-8 p-8">
-          <p className="text-lg font-semibold">正在加载购物车...</p>
+        <div className="panel mt-8 flex items-center gap-4 p-8">
+          <div className="h-11 w-11 animate-spin rounded-full border-2 border-coral/20 border-t-coral" />
+          <div>
+            <p className="text-lg font-semibold">正在加载购物车...</p>
+            <p className="subtle mt-1 text-sm">正在一次性读取购物车条目和商品展示信息。</p>
+          </div>
         </div>
       ) : items.length === 0 ? (
         <div className="panel mt-8 p-8">

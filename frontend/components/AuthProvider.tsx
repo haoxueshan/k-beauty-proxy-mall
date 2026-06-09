@@ -19,8 +19,8 @@ type AuthContextValue = {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (payload: LoginPayload) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
+  login: (payload: LoginPayload) => Promise<User>;
+  register: (payload: RegisterPayload) => Promise<User>;
   logout: () => Promise<void>;
 };
 
@@ -59,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(TOKEN_KEY, result.token);
     setToken(result.token);
     setUser(result.user);
+    return result.user;
   }
 
   async function handleRegister(payload: RegisterPayload) {
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(TOKEN_KEY, result.token);
     setToken(result.token);
     setUser(result.user);
+    return result.user;
   }
 
   async function handleLogout() {

@@ -7,9 +7,17 @@ create table if not exists users (
   password_hash text not null,
   name text not null,
   phone text,
+  role text not null default 'user' check (role in ('user', 'admin', 'super_admin')),
   is_admin boolean not null default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
+);
+
+create table if not exists profiles (
+  id uuid primary key,
+  email text not null,
+  role text not null default 'user' check (role in ('user', 'admin', 'super_admin')),
+  created_at timestamptz default now()
 );
 
 create table if not exists auth_sessions (
@@ -73,7 +81,7 @@ create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
   order_no text unique not null,
-  status text default 'pending_quote',
+  status text default 'pending' check (status in ('pending', 'quoted', 'processing', 'completed', 'cancelled')),
   product_total_cny numeric,
   service_fee_cny numeric,
   international_shipping_fee_cny numeric,

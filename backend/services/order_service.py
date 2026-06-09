@@ -9,8 +9,13 @@ def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def list_orders(user_id: str | None = None) -> list[Order]:
-    filters = {"user_id": f"eq.{user_id}"} if user_id else None
+def list_orders(user_id: str | None = None, order_id: str | None = None) -> list[Order]:
+    filters: dict[str, str] = {}
+    if user_id:
+        filters["user_id"] = f"eq.{user_id}"
+    if order_id:
+        filters["id"] = f"eq.{order_id}"
+
     rows = select_rows(
         "orders",
         columns=(
@@ -18,7 +23,7 @@ def list_orders(user_id: str | None = None) -> list[Order]:
             "international_shipping_fee_cny,package_fee_cny,total_amount_cny,paid_amount_cny,"
             "receiver_name,receiver_phone,receiver_address,user_note,admin_note,created_at"
         ),
-        filters=filters,
+        filters=filters or None,
         order="created_at.desc",
     )
     order_ids = [row["id"] for row in rows]
@@ -70,15 +75,14 @@ def list_orders(user_id: str | None = None) -> list[Order]:
     ]
 
 
-def list_admin_orders() -> list[AdminOrder]:
-    orders = list_orders()
+def _enrich_admin_orders(orders: list[Order]) -> list[AdminOrder]:
     user_ids = sorted({order.user_id for order in orders if order.user_id})
     users_by_id: dict[str, dict] = {}
 
     if user_ids:
         user_rows = select_rows(
             "users",
-            columns="id,email,name,phone",
+            columns="id,email,name,phone,role",
             filters={"id": f"in.({','.join(user_ids)})"},
         )
         users_by_id = {row["id"]: row for row in user_rows}
@@ -92,6 +96,32 @@ def list_admin_orders() -> list[AdminOrder]:
         )
         for order in orders
     ]
+
+
+def list_admin_orders() -> list[AdminOrder]:
+    return _enrich_admin_orders(list_orders())
+
+
+def get_admin_order(order_id: str) -> AdminOrder | None:
+    orders = list_orders(order_id=order_id)
+    if not orders:
+        return None
+    return _enrich_admin_orders(orders)[0]
+
+
+def update_admin_order(order_id: str, status: str, admin_note: str | None) -> AdminOrder | None:
+    updated_rows = update_rows(
+        "orders",
+        filters={"id": f"eq.{order_id}"},
+        payload={
+            "status": status,
+            "admin_note": admin_note,
+            "updated_at": datetime.utcnow().isoformat(),
+        },
+    )
+    if not updated_rows:
+        return None
+    return get_admin_order(order_id)
 
 
 def add_cart_item(user_id: str, product_id: str, quantity: int, selected_option: str | None, note: str | None) -> str:
@@ -247,7 +277,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
         id=order_id,
         user_id=user_id,
         order_no=order_no,
-        status="pending_quote",
+        status="pending",
         product_total_cny=total_amount,
         service_fee_cny=0,
         international_shipping_fee_cny=0,
@@ -281,7 +311,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
             "id": order_id,
             "user_id": user_id,
             "order_no": order_no,
-            "status": "pending_quote",
+            "status": "pending",
             "product_total_cny": total_amount,
             "service_fee_cny": 0,
             "international_shipping_fee_cny": 0,
@@ -292,6 +322,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
             "receiver_phone": payload.receiver_phone,
             "receiver_address": payload.receiver_address,
             "user_note": payload.note,
+            "updated_at": datetime.utcnow().isoformat(),
         },
     )
 

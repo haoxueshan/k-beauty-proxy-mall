@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - dependency is optional until installed
     OpenAI = None  # type: ignore[assignment]
 
 
-DEFAULT_OPENAI_TRANSLATION_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_TRANSLATION_MODEL = "gpt-4o"
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
 CODE_BLOCK_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 _translation_cache: dict[tuple[str, str, str], tuple[str, str | None]] = {}
@@ -86,9 +86,13 @@ def _build_messages(texts: Sequence[str], source_language: str, target_language:
     developer_message = {
         "role": "developer",
         "content": (
-            "You are a professional e-commerce translator. "
-            "Translate product titles accurately into concise Simplified Chinese. "
-            "Preserve brand names, English words, SPF/PA values, shade numbers, capacities, and model codes. "
+            "You are a high-accuracy Korean-to-Simplified-Chinese product-title translator for Olive Young products. "
+            "Translate faithfully and literally enough that Chinese users can understand the original Korean title. "
+            "Keep the original information order and do not rewrite into advertising copy. "
+            "Do not summarize, omit, infer, add selling points, or split the title. "
+            "Translate Korean words into Simplified Chinese, while preserving official brand names, English words, SPF/PA values, "
+            "shade numbers, capacities, model codes, gift details, bundle/set details, punctuation, and parenthesized information. "
+            "If a Korean brand has a well-known official English name, use that English name. "
             "Return only a JSON array of translated strings in the same order as the input."
         ),
     }
@@ -97,7 +101,8 @@ def _build_messages(texts: Sequence[str], source_language: str, target_language:
         "role": "user",
         "content": (
             f"Translate the following items from {source_language} to {target_language}. "
-            "Do not add explanations.\n"
+            "Output accurate plain Chinese translations only. Do not add explanations, subtitles, selling points, or extra words. "
+            "The output must not contain Korean Hangul unless it is an official brand or shade name that should be preserved.\n"
             f"{json.dumps(user_payload, ensure_ascii=False)}"
         ),
     }
@@ -121,6 +126,8 @@ def _request_openai_translations(
     )
     output_text = getattr(response, "output_text", "")
     translations = _parse_json_array(output_text, len(texts))
+    if any(HANGUL_PATTERN.search(translation) for translation in translations):
+        raise ValueError("Translation response still contains Hangul")
     return TranslationBatchResult(translations=translations, provider="openai", model=model)
 
 

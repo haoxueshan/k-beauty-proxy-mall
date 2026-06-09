@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +10,6 @@ class ProductMetadata(BaseModel):
     completeness_score: float = 0
     price_confidence: float = 0
     translation_confidence: float = 0
-    source_page: int | None = None
     source_rank: int | None = None
     keyword_ko: str | None = None
     synced_at: datetime | None = None
@@ -198,8 +197,14 @@ class UserPublic(BaseModel):
     email: str
     name: str
     phone: str | None = None
+    role: Literal["user", "admin", "super_admin"] = "user"
     is_admin: bool = False
     created_at: datetime
+
+
+class AdminOrderUpdate(BaseModel):
+    status: Literal["pending", "quoted", "processing", "completed", "cancelled"]
+    admin_note: str | None = None
 
 
 class RegisterRequest(BaseModel):

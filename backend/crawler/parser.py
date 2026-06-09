@@ -105,7 +105,6 @@ def normalize_product(
             completeness_score=completeness_score,
             price_confidence=price_confidence,
             translation_confidence=translation_confidence,
-            source_page=_coerce_int(raw.raw_data.get("source_page")),
             source_rank=_coerce_int(raw.raw_data.get("source_rank")),
             keyword_ko=raw.raw_data.get("keyword_ko"),
             synced_at=_coerce_datetime(raw.raw_data.get("synced_at") or raw.raw_data.get("last_synced_at")),

@@ -39,6 +39,7 @@ Execute [db/schema.sql](C:/Users/Administrator/Desktop/demo/db/schema.sql) insid
 If you already created the older scaffold tables before this change, also run:
 
 - [db/supabase_migration_auth.sql](C:/Users/Administrator/Desktop/demo/db/supabase_migration_auth.sql)
+- [db/supabase_migration_admin_orders_roles.sql](C:/Users/Administrator/Desktop/demo/db/supabase_migration_admin_orders_roles.sql)
 
 ## 4. Current cloud-backed tables
 

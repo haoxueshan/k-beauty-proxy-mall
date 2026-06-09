@@ -6,12 +6,12 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from db.supabase_client import delete_rows, insert_rows, select_rows
+from db.supabase_client import delete_rows, insert_rows, select_rows, update_rows
 from schemas import LoginRequest, RegisterRequest, UserPublic
 
 
-def _normalize_email(email: str) -> str:
-    return email.strip().lower()
+def _normalize_identifier(value: str) -> str:
+    return value.strip().lower()
 
 
 def _hash_password(password: str, salt: str) -> str:
@@ -19,19 +19,46 @@ def _hash_password(password: str, salt: str) -> str:
     return digest.hex()
 
 
+def _normalize_role(role: str | None, is_admin: bool | None = False) -> str:
+    if role in {"user", "admin", "super_admin"}:
+        return role
+    return "admin" if is_admin else "user"
+
+
 def _serialize_user(record: dict) -> UserPublic:
+    role = _normalize_role(record.get("role"), bool(record.get("is_admin")))
     return UserPublic(
         id=record["id"],
         email=record["email"],
         name=record["name"],
         phone=record.get("phone"),
-        is_admin=bool(record.get("is_admin")),
+        role=role,
+        is_admin=role in {"admin", "super_admin"},
         created_at=datetime.fromisoformat(record["created_at"]),
     )
 
 
+def _sync_profile(record: dict) -> None:
+    try:
+        select_rows("profiles", columns="id", limit=1)
+    except HTTPException:
+        return
+
+    payload = {
+        "id": record["id"],
+        "email": record["email"],
+        "role": _normalize_role(record.get("role"), bool(record.get("is_admin"))),
+        "created_at": record.get("created_at") or datetime.utcnow().isoformat(),
+    }
+    existing_profiles = select_rows("profiles", columns="id", filters={"id": f"eq.{record['id']}"}, limit=1)
+    if existing_profiles:
+        update_rows("profiles", filters={"id": f"eq.{record['id']}"}, payload=payload)
+        return
+    insert_rows("profiles", payload)
+
+
 def register_user(payload: RegisterRequest) -> tuple[str, UserPublic]:
-    email = _normalize_email(payload.email)
+    email = _normalize_identifier(payload.email)
 
     existing_users = select_rows("users", columns="id", filters={"email": f"eq.{email}"}, limit=1)
     if existing_users:
@@ -44,12 +71,15 @@ def register_user(payload: RegisterRequest) -> tuple[str, UserPublic]:
         "email": email,
         "name": payload.name.strip(),
         "phone": payload.phone.strip() if payload.phone else None,
+        "role": "user",
+        "is_admin": False,
         "password_salt": salt,
         "password_hash": _hash_password(payload.password, salt),
         "created_at": datetime.utcnow().isoformat(),
     }
     created_users = insert_rows("users", user_record)
     created_user = created_users[0]
+    _sync_profile(created_user)
 
     token = secrets.token_urlsafe(32)
     insert_rows(
@@ -65,13 +95,20 @@ def register_user(payload: RegisterRequest) -> tuple[str, UserPublic]:
 
 
 def login_user(payload: LoginRequest) -> tuple[str, UserPublic]:
-    email = _normalize_email(payload.email)
+    identifier = _normalize_identifier(payload.email)
     users = select_rows(
         "users",
         columns="*",
-        filters={"email": f"eq.{email}"},
+        filters={"email": f"eq.{identifier}"},
         limit=1,
     )
+    if not users:
+        users = select_rows(
+            "users",
+            columns="*",
+            filters={"name": f"eq.{identifier}"},
+            limit=1,
+        )
     if not users:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     user_record = users[0]
@@ -90,6 +127,7 @@ def login_user(payload: LoginRequest) -> tuple[str, UserPublic]:
             "created_at": datetime.utcnow().isoformat(),
         },
     )
+    _sync_profile(user_record)
     return token, _serialize_user(user_record)
 
 

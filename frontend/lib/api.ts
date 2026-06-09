@@ -172,7 +172,6 @@ function normalizeProductMetadata(metadataPayload: any, productPayload?: any): P
       fallback.translationConfidence ??
       fallback.translation_confidence ??
       undefined,
-    sourcePage: source.sourcePage ?? source.source_page ?? fallback.sourcePage ?? fallback.source_page ?? null,
     sourceRank: source.sourceRank ?? source.source_rank ?? fallback.sourceRank ?? fallback.source_rank ?? null,
     keywordKo: source.keywordKo ?? source.keyword_ko ?? fallback.keywordKo ?? fallback.keyword_ko ?? null,
     syncedAt: source.syncedAt ?? source.synced_at ?? fallback.syncedAt ?? fallback.synced_at ?? null,
@@ -243,12 +242,14 @@ function normalizeOrder(payload: any): Order {
 }
 
 function normalizeUser(payload: any): User {
+  const role = payload.role ?? (payload.isAdmin ?? payload.is_admin ? "admin" : "user");
   return {
     id: payload.id,
     email: payload.email,
     name: payload.name,
     phone: payload.phone ?? null,
-    isAdmin: payload.isAdmin ?? payload.is_admin ?? false,
+    role,
+    isAdmin: role === "admin" || role === "super_admin",
     createdAt: payload.createdAt ?? payload.created_at
   };
 }
@@ -485,6 +486,36 @@ export async function getAdminOrders(token: string): Promise<Order[]> {
     }
   });
   return result.map(normalizeOrder);
+}
+
+export async function getAdminOrder(token: string, orderId: string): Promise<Order> {
+  const result = await authFetch<any>(`/api/admin/orders/${orderId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  return normalizeOrder(result);
+}
+
+export async function updateAdminOrder(
+  token: string,
+  orderId: string,
+  payload: {
+    status: "pending" | "quoted" | "processing" | "completed" | "cancelled";
+    adminNote?: string | null;
+  }
+): Promise<Order> {
+  const result = await authFetch<any>(`/api/admin/orders/${orderId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      status: payload.status,
+      admin_note: payload.adminNote ?? null
+    })
+  });
+  return normalizeOrder(result);
 }
 
 export async function deleteOrder(token: string, orderId: string): Promise<void> {

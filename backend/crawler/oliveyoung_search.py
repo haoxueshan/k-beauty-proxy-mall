@@ -483,7 +483,6 @@ def _parse_product_list_page_products(
             original_price = sale_price
 
         local_rank = len(parsed_products) + 1
-        source_rank = ((_normalize_page(page) - 1) * _normalize_page_size(page_size)) + local_rank
         price_node = container.select_one(".prd_price")
         raw_price_text = price_node.get_text(" ", strip=True) if price_node else ""
 
@@ -501,8 +500,7 @@ def _parse_product_list_page_products(
                     "page_url": page_url,
                     "href": href,
                     "text": container.get_text(" ", strip=True),
-                    "source_page": _normalize_page(page),
-                    "source_rank": source_rank,
+                    "source_rank": local_rank,
                     "keyword_ko": keyword_ko or None,
                     "sort": _normalize_sort(sort),
                     "synced_at": synced_at.isoformat() if synced_at else None,
@@ -619,10 +617,10 @@ def _fetch_live_search_entry(
 
     offset = (page - 1) * page_size
     raw_products = []
-    for product in all_products[offset : offset + page_size]:
+    for local_rank, product in enumerate(all_products[offset : offset + page_size], start=1):
         raw_data = dict(product.raw_data)
-        raw_data["source_page"] = page
-        raw_data["source_rank"] = raw_data.get("source_rank") or (len(raw_products) + offset + 1)
+        raw_data.pop("source_page", None)
+        raw_data["source_rank"] = local_rank
         raw_products.append(product.model_copy(update={"raw_data": raw_data}))
     return _build_cache_entry(
         source="oliveyoung-search",

@@ -4,7 +4,6 @@ export type ProductMetadata = {
   completenessScore?: number;
   priceConfidence?: number;
   translationConfidence?: number;
-  sourcePage?: number | null;
   sourceRank?: number | null;
   keywordKo?: string | null;
   syncedAt?: string | null;
@@ -70,6 +69,7 @@ export type User = {
   email: string;
   name: string;
   phone?: string | null;
+  role?: "user" | "admin" | "super_admin";
   isAdmin?: boolean;
   createdAt: string;
 };
@@ -166,7 +166,7 @@ export const mockOrders: Order[] = [
     id: "order-1",
     userId: "demo-user",
     orderNo: "OY202606040001",
-    status: "pending_quote",
+    status: "pending",
     productTotalCny: 203,
     serviceFeeCny: 0,
     internationalShippingFeeCny: 0,
@@ -208,7 +208,7 @@ export const mockOrders: Order[] = [
     id: "order-2",
     userId: "demo-user",
     orderNo: "OY202606030003",
-    status: "shipping",
+    status: "processing",
     productTotalCny: 113.2,
     serviceFeeCny: 0,
     internationalShippingFeeCny: 0,

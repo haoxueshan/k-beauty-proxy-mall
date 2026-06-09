@@ -15,6 +15,7 @@ from crawler.oliveyoung_search import diagnose_oliveyoung_search, search_product
 from db.supabase_client import get_supabase_settings
 from schemas import (
     AdminOrder,
+    AdminOrderUpdate,
     AuthResponse,
     CartDisplayItem,
     CartItem,
@@ -46,9 +47,11 @@ from services.order_service import (
     delete_cart_item,
     delete_order,
     get_cart_items,
+    get_admin_order,
     list_cart_items,
     list_admin_orders,
     list_orders,
+    update_admin_order,
     update_cart_item,
 )
 
@@ -178,7 +181,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> UserPu
 
 
 def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
-    if not user.is_admin:
+    if user.role not in {"admin", "super_admin"}:
         raise HTTPException(status_code=403, detail="Admin permission is required")
     return user
 
@@ -336,6 +339,32 @@ def orders(user: UserPublic = Depends(get_current_user)):
 def admin_orders(user: UserPublic = Depends(require_admin)) -> list[AdminOrder]:
     _ = user
     return list_admin_orders()
+
+
+@app.get("/api/admin/orders/{order_id}", response_model=AdminOrder)
+def admin_order_detail(order_id: str, user: UserPublic = Depends(require_admin)) -> AdminOrder:
+    _ = user
+    order = get_admin_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+
+@app.patch("/api/admin/orders/{order_id}", response_model=AdminOrder)
+def admin_order_update(
+    order_id: str,
+    payload: AdminOrderUpdate,
+    user: UserPublic = Depends(require_admin),
+) -> AdminOrder:
+    _ = user
+    order = update_admin_order(
+        order_id,
+        payload.status,
+        payload.admin_note.strip() if payload.admin_note is not None else None,
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
 
 
 @app.delete("/api/orders/{order_id}", response_model=DeleteResponse)

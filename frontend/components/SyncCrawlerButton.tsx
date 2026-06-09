@@ -10,9 +10,10 @@ type Props = {
   page?: number;
   pageSize?: number;
   sort?: string;
+  compact?: boolean;
 };
 
-export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = limit, sort = "ranking" }: Props) {
+export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = limit, sort = "ranking", compact = false }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
@@ -31,7 +32,7 @@ export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = li
         return;
       }
 
-      setMessage(`已同步第 ${page} 页 ${result.count} 个商品，来源：${result.source || "Olive Young 首页"}`);
+      setMessage(`已刷新 ${result.count} 个商品，来源：${result.source || "Olive Young 首页"}`);
       startTransition(() => {
         router.refresh();
       });
@@ -43,9 +44,9 @@ export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = li
   }
 
   return (
-    <div className="space-y-2">
+    <div className={compact ? "inline-flex flex-col gap-2" : "space-y-2"}>
       <button type="button" className="cta ghost" onClick={handleSync} disabled={isSyncing || isPending}>
-        {isSyncing || isPending ? "正在同步..." : `同步当前页（第 ${page} 页）`}
+        {isSyncing || isPending ? "正在刷新..." : "刷新结果"}
       </button>
       {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}

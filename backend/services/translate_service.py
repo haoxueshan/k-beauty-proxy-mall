@@ -65,8 +65,15 @@ CATEGORY_MAPPING = {
 }
 
 TITLE_REPLACEMENTS = {
+    "[올영최초런칭]": "[Olive Young 首发]",
+    "[SNS대란템]": "[SNS 爆款]",
+    "[한정기획]": "[限定套装]",
+    "[NEW초여름 컬러/6월 올영픽]": "[NEW 初夏色/6月 Olive Young Pick]",
+    "[NEW듀유코어/1등唇釉]": "[NEW Dewy Core/1号唇釉]",
+    "[NEW 알로하선셋 에디션 출시]": "[NEW 阿罗哈夕阳版上市]",
     "라운드랩": "Round Lab",
     "rom&nd": "rom&nd",
+    "롬앤": "rom&nd",
     "아누아": "Anua",
     "메디힐": "Mediheal",
     "토리든": "Torriden",
@@ -74,6 +81,12 @@ TITLE_REPLACEMENTS = {
     "뷰티오브조선": "Beauty of Joseon",
     "닥터지": "Dr.G",
     "라로슈포제": "La Roche-Posay",
+    "토니모리": "TONYMOLY",
+    "얼터너티브스테레오": "Alternative Stereo",
+    "듀유코어": "Dewy Core",
+    "알로하선셋": "阿罗哈夕阳",
+    "에디션": "版",
+    "출시": "上市",
     "자작나무": "白桦树",
     "어성초": "鱼腥草",
     "마데카소사이드": "积雪草苷",
@@ -84,6 +97,7 @@ TITLE_REPLACEMENTS = {
     "탄력": "紧致",
     "선크림": "防晒霜",
     "선스틱": "防晒棒",
+    "포밍": "泡沫",
     "토너": "爽肤水",
     "세럼": "精华",
     "에센스": "精华液",
@@ -93,16 +107,41 @@ TITLE_REPLACEMENTS = {
     "클렌징 오일": "卸妆油",
     "클렌저": "洁面乳",
     "클렌징폼": "洁面泡沫",
+    "클렌징": "清洁",
     "마스크팩": "面膜",
     "패드": "棉片",
     "쿠션": "气垫",
+    "립 포션": "唇部 Potion",
+    "립펜슬": "唇线笔",
+    "퍼펙트립스": "Perfect Lips",
+    "쇼킹립": "Shocking Lip",
+    "립밤": "润唇膏",
+    "립스": "Lips",
+    "립": "唇",
+    "래스팅": "持久",
+    "쥬시": "Juicy",
     "틴트": "唇釉",
     "립스틱": "口红",
-    "립밤": "润唇膏",
+    "쇼킹": "Shocking",
+    "퍼펙트": "Perfect",
+    "포션": "Potion",
+    "카라멜": "焦糖",
+    "글레이즈": "Glaze",
     "세트": "套装",
     "리필": "补充装",
     "대용량": "大容量",
     "한정": "限定",
+    "기획": "套装",
+    "단품": "单品",
+    "증정": "赠品",
+    "미니": "迷你",
+    "올영픽": "Olive Young Pick",
+    "초여름": "初夏",
+    "컬러": "色",
+    "컬러": "色",
+    "선택": "选择",
+    "택1": "选1",
+    "1등": "1号",
 }
 
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
@@ -203,7 +242,10 @@ def translate_title_with_rules(title_ko: str) -> str:
     translated = title_ko.strip()
     for source, target in sorted(TITLE_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
         translated = translated.replace(source, target)
-    return " ".join(translated.split())
+    translated = re.sub(r"[\uac00-\ud7a3]+", "", translated)
+    translated = re.sub(r"\s*([/+])\s*", r"\1", translated)
+    translated = re.sub(r"\s{2,}", " ", translated)
+    return translated.strip()
 
 
 def translate_title_to_chinese(title_ko: str) -> str:
