@@ -25,6 +25,8 @@ FALLBACK_RECOMMENDATION_LIMIT = 6
 DEFAULT_PAGE_SIZE = 24
 DEFAULT_SORT = "ranking"
 MAX_PAGE_SIZE = 60
+PAGE_READY_TIMEOUT_SECONDS = 60
+PAGE_READY_POLL_SECONDS = 3
 
 SOURCE_LIVE_SEARCH = "live_search"
 SOURCE_LIVE_MAIN = "live_main"
@@ -50,6 +52,7 @@ class CacheEntry:
 _home_cache: CacheEntry | None = None
 _search_cache: dict[str, CacheEntry] = {}
 _detail_cache: dict[str, CacheEntry] = {}
+_last_page_fetch_debug: dict[str, object] = {}
 
 
 def _utcnow() -> datetime:
@@ -292,6 +295,41 @@ def _is_cache_fresh(entry: CacheEntry | None) -> bool:
     return (time.time() - entry.fetched_at.timestamp()) < CACHE_TTL_SECONDS
 
 
+def _html_has_product_signal(html: str) -> bool:
+    signals = (
+        "goodsNo",
+        "goods_no",
+        "data-ref-goodsno",
+        "getGoodsDetail.do",
+        "prd_price",
+        "tx_brand",
+        "tx_name",
+        "product",
+        "goods",
+    )
+    return any(signal in html for signal in signals)
+
+
+def _html_is_cloudflare_wait(html: str) -> bool:
+    return any(
+        signal in html
+        for signal in (
+            "window._cf_chl_opt",
+            "cf_chl_rt_tk",
+            "잠시만 기다려 주세요",
+        )
+    )
+
+
+def _set_last_page_fetch_debug(**kwargs: object) -> None:
+    global _last_page_fetch_debug
+    _last_page_fetch_debug = kwargs
+
+
+def get_last_page_fetch_debug() -> dict[str, object]:
+    return dict(_last_page_fetch_debug)
+
+
 def _fetch_page_html(
     url: str,
     ready_selector: str | None = PRODUCT_LINK_SELECTOR,
@@ -325,21 +363,44 @@ def _fetch_page_html(
                 viewport={"width": 1440, "height": 2200},
             )
 
+            started_at = time.time()
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            if ready_selector:
-                try:
-                    page.wait_for_selector(ready_selector, timeout=15000)
-                except Exception:
-                    page.wait_for_timeout(3000)
-            else:
-                page.wait_for_timeout(3000)
+            html = page.content()
+            reason = "waiting_for_products"
+            while True:
+                html = page.content()
+                elapsed = time.time() - started_at
+                if _html_has_product_signal(html):
+                    reason = "product_signals_found"
+                    break
+
+                if _html_is_cloudflare_wait(html):
+                    reason = "cloudflare_wait"
+                else:
+                    reason = "waiting_for_products"
+
+                if elapsed >= PAGE_READY_TIMEOUT_SECONDS:
+                    reason = "blocked_by_cloudflare" if _html_is_cloudflare_wait(html) else "no_products_after_wait"
+                    break
+
+                page.wait_for_timeout(PAGE_READY_POLL_SECONDS * 1000)
 
             for _ in range(max(scroll_steps, 0)):
                 page.mouse.wheel(0, 1200)
                 page.wait_for_timeout(800)
 
-            return page.content()
+            final_html = page.content()
+            _set_last_page_fetch_debug(
+                reason=reason,
+                title=page.title(),
+                current_url=page.url,
+                wait_seconds=round(time.time() - started_at, 2),
+                product_count=final_html.count("goodsNo=") + final_html.count("data-ref-goodsno"),
+                blocked_by_cloudflare=reason == "blocked_by_cloudflare",
+                url=url,
+            )
+            return final_html
         finally:
             browser.close()
 
@@ -550,6 +611,12 @@ def _fetch_live_search_entry(
         sort=sort,
         synced_at=fetched_at,
     )
+    if not all_products:
+        debug = get_last_page_fetch_debug()
+        reason = str(debug.get("reason") or "no_products_after_wait")
+        if reason in {"blocked_by_cloudflare", "no_products_after_wait"}:
+            raise RuntimeError(reason)
+
     offset = (page - 1) * page_size
     raw_products = []
     for product in all_products[offset : offset + page_size]:
@@ -954,9 +1021,17 @@ def search_products_with_source(
 
 def diagnose_oliveyoung_search(keyword: str = "sunscreen", limit: int = 3) -> dict[str, object]:
     started_at = time.time()
-    response = search_products_with_source(keyword)
+    response = search_products_with_source(keyword, page_size=max(limit, 1))
+    fetch_debug = get_last_page_fetch_debug()
+    ok = bool(response.items)
+    reason = "ok" if ok else (response.error or fetch_debug.get("reason") or "no_products_after_wait")
     return {
-        "ok": bool(response.items),
+        "ok": ok,
+        "reason": reason,
+        "title": fetch_debug.get("title"),
+        "current_url": fetch_debug.get("current_url"),
+        "wait_seconds": fetch_debug.get("wait_seconds"),
+        "product_count": response.count,
         "keyword_original": response.keyword_original,
         "keyword_ko": response.keyword_ko,
         "source": response.source,
