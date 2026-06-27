@@ -29,7 +29,7 @@ function formatDateTime(value: string) {
 }
 
 function formatMoney(value: number) {
-  return `¥${value.toFixed(2)}`;
+  return `CNY ${value.toFixed(2)}`;
 }
 
 function getBuyerLabel(order: Order) {
@@ -62,11 +62,9 @@ export function AdminOrdersClient() {
     setIsLoading(true);
     setError("");
     getAdminOrders(token)
-      .then((items) => {
-        setOrders(items);
-      })
+      .then(setOrders)
       .catch((requestError) => {
-        setError(requestError instanceof Error ? requestError.message : "订单加载失败");
+        setError(requestError instanceof Error ? requestError.message : "Order loading failed");
       })
       .finally(() => {
         setIsLoading(false);
@@ -87,7 +85,7 @@ export function AdminOrdersClient() {
       const detail = await getAdminOrder(token, orderId);
       setSelectedOrder(detail);
     } catch (requestError) {
-      setDetailError(requestError instanceof Error ? requestError.message : "订单详情加载失败");
+      setDetailError(requestError instanceof Error ? requestError.message : "Order detail loading failed");
     } finally {
       setIsDetailLoading(false);
     }
@@ -108,7 +106,7 @@ export function AdminOrdersClient() {
       setSelectedOrder(updatedOrder);
       setOrders((current) => current.map((item) => (item.id === updatedOrder.id ? updatedOrder : item)));
     } catch (requestError) {
-      setDetailError(requestError instanceof Error ? requestError.message : "订单保存失败");
+      setDetailError(requestError instanceof Error ? requestError.message : "Order save failed");
     } finally {
       setIsSaving(false);
     }
@@ -120,8 +118,7 @@ export function AdminOrdersClient() {
   if (isAuthLoading) {
     return (
       <section className="panel mt-8 p-8">
-        <p className="text-lg font-semibold">正在验证管理员身份</p>
-        <p className="subtle mt-2">请稍候，我们正在检查当前登录状态。</p>
+        <p className="text-lg font-semibold">Checking admin access...</p>
       </section>
     );
   }
@@ -129,14 +126,13 @@ export function AdminOrdersClient() {
   if (!isAuthenticated) {
     return (
       <section className="panel mt-8 p-8">
-        <p className="text-lg font-semibold">请先登录管理员账号</p>
-        <p className="subtle mt-2">登录后才能查看全部用户订单并处理状态与备注。</p>
+        <p className="text-lg font-semibold">Admin login required</p>
         <div className="mt-6 flex gap-3">
           <Link href="/admin/login" className="cta">
-            去管理员登录
+            Admin login
           </Link>
           <Link href="/" className="cta ghost">
-            返回首页
+            Home
           </Link>
         </div>
       </section>
@@ -146,8 +142,7 @@ export function AdminOrdersClient() {
   if (!isAdminRole(user?.role)) {
     return (
       <section className="panel mt-8 p-8">
-        <p className="text-lg font-semibold">无后台访问权限</p>
-        <p className="subtle mt-2">当前账号 role 为普通用户，不能访问管理员订单页。</p>
+        <p className="text-lg font-semibold">No admin access</p>
       </section>
     );
   }
@@ -159,9 +154,11 @@ export function AdminOrdersClient() {
           <button
             type="button"
             onClick={() => setFilterStatus("all")}
-            className={`rounded-full px-4 py-2 text-sm ${filterStatus === "all" ? "bg-ink text-white" : "border border-black/10 bg-white/80"}`}
+            className={`rounded-full px-4 py-2 text-sm ${
+              filterStatus === "all" ? "bg-ink text-white" : "border border-black/10 bg-white/80"
+            }`}
           >
-            全部
+            All
           </button>
           {ORDER_STATUS_OPTIONS.map((option) => (
             <button
@@ -181,30 +178,29 @@ export function AdminOrdersClient() {
       <section className="panel mt-6 overflow-hidden p-0">
         {isLoading ? (
           <div className="p-8">
-            <p className="text-lg font-semibold">正在加载订单...</p>
+            <p className="text-lg font-semibold">Loading orders...</p>
           </div>
         ) : error ? (
           <div className="p-8">
-            <p className="text-lg font-semibold">订单加载失败</p>
+            <p className="text-lg font-semibold">Order loading failed</p>
             <p className="subtle mt-2">{error}</p>
           </div>
         ) : visibleOrders.length === 0 ? (
           <div className="p-8">
-            <p className="text-lg font-semibold">当前筛选下没有订单</p>
-            <p className="subtle mt-2">你可以切换状态筛选查看其他订单。</p>
+            <p className="text-lg font-semibold">No orders in this filter</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-black/[0.03] text-left">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">订单号</th>
-                  <th className="px-6 py-4 font-semibold">用户</th>
-                  <th className="px-6 py-4 font-semibold">商品数</th>
-                  <th className="px-6 py-4 font-semibold">订单金额</th>
-                  <th className="px-6 py-4 font-semibold">状态</th>
-                  <th className="px-6 py-4 font-semibold">创建时间</th>
-                  <th className="px-6 py-4 font-semibold">操作</th>
+                  <th className="px-6 py-4 font-semibold">Order no.</th>
+                  <th className="px-6 py-4 font-semibold">User</th>
+                  <th className="px-6 py-4 font-semibold">Items</th>
+                  <th className="px-6 py-4 font-semibold">Amount</th>
+                  <th className="px-6 py-4 font-semibold">Status</th>
+                  <th className="px-6 py-4 font-semibold">Created</th>
+                  <th className="px-6 py-4 font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -224,7 +220,7 @@ export function AdminOrdersClient() {
                         onClick={() => handleOpenOrder(order.id)}
                         className="rounded-full border border-black/10 bg-white px-4 py-2 font-semibold"
                       >
-                        查看/处理
+                        View details
                       </button>
                     </td>
                   </tr>
@@ -248,38 +244,38 @@ export function AdminOrdersClient() {
                 onClick={() => setSelectedOrder(null)}
                 className="rounded-full border border-black/10 px-3 py-1 text-sm"
               >
-                关闭
+                Close
               </button>
             </div>
 
             <div className="p-6">
-              {isDetailLoading ? <p className="text-sm">正在加载订单详情...</p> : null}
+              {isDetailLoading ? <p className="text-sm">Loading order detail...</p> : null}
               {detailError ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{detailError}</p> : null}
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                  <p className="font-semibold">用户信息</p>
+                  <p className="font-semibold">User</p>
                   <div className="subtle mt-2 space-y-1 text-sm">
-                    <p>用户：{getBuyerLabel(selectedOrder)}</p>
-                    {selectedOrder.userEmail ? <p>邮箱：{selectedOrder.userEmail}</p> : null}
-                    {selectedOrder.userPhone ? <p>电话：{selectedOrder.userPhone}</p> : null}
-                    {selectedOrder.userId ? <p>用户 ID：{selectedOrder.userId}</p> : null}
+                    <p>Buyer: {getBuyerLabel(selectedOrder)}</p>
+                    {selectedOrder.userEmail ? <p>Email: {selectedOrder.userEmail}</p> : null}
+                    {selectedOrder.userPhone ? <p>Phone: {selectedOrder.userPhone}</p> : null}
+                    {selectedOrder.userId ? <p>User ID: {selectedOrder.userId}</p> : null}
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                  <p className="font-semibold">收货地址</p>
+                  <p className="font-semibold">Receiver</p>
                   <div className="subtle mt-2 space-y-1 text-sm">
-                    <p>收货人：{selectedOrder.receiverName}</p>
-                    {selectedOrder.receiverPhone ? <p>电话：{selectedOrder.receiverPhone}</p> : null}
-                    {selectedOrder.receiverAddress ? <p>地址：{selectedOrder.receiverAddress}</p> : null}
-                    {selectedOrder.userNote ? <p>用户备注：{selectedOrder.userNote}</p> : null}
+                    <p>Name: {selectedOrder.receiverName}</p>
+                    {selectedOrder.receiverPhone ? <p>Phone: {selectedOrder.receiverPhone}</p> : null}
+                    {selectedOrder.receiverAddress ? <p>Address: {selectedOrder.receiverAddress}</p> : null}
+                    {selectedOrder.userNote ? <p>Order note: {selectedOrder.userNote}</p> : null}
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 rounded-2xl border border-black/10 bg-white/70 p-4">
-                <p className="font-semibold">商品列表</p>
+                <p className="font-semibold">Products</p>
                 <div className="mt-3 space-y-3">
                   {selectedOrder.items.map((item) => (
                     <div key={item.id} className="rounded-2xl border border-black/10 bg-white p-4">
@@ -288,9 +284,24 @@ export function AdminOrdersClient() {
                           <p className="font-semibold">{item.titleZh}</p>
                           <p className="subtle text-sm">{item.titleKo}</p>
                           <p className="subtle mt-2 text-sm">
-                            数量：{item.quantity}
-                            {item.selectedOption ? ` / 规格：${item.selectedOption}` : ""}
+                            Quantity: {item.quantity}
+                            {item.selectedOption ? ` / Option: ${item.selectedOption}` : ""}
                           </p>
+                          {item.sourceUrl ? (
+                            <a
+                              href={item.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-2 inline-flex text-sm font-semibold text-coral underline underline-offset-4"
+                            >
+                              Official link
+                            </a>
+                          ) : null}
+                          {item.note ? (
+                            <p className="mt-2 rounded-2xl bg-white/70 px-3 py-2 text-sm text-ink">
+                              Item note: {item.note}
+                            </p>
+                          ) : null}
                         </div>
                         <p className="font-semibold">{formatMoney(item.subtotalCny)}</p>
                       </div>
@@ -301,21 +312,21 @@ export function AdminOrdersClient() {
 
               <div className="mt-4 grid gap-4 md:grid-cols-[0.8fr_1.2fr]">
                 <div className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                  <p className="font-semibold">订单金额</p>
+                  <p className="font-semibold">Amount</p>
                   <div className="subtle mt-2 space-y-1 text-sm">
-                    <p>商品金额：{formatMoney(selectedOrder.productTotalCny)}</p>
-                    <p>服务费：{formatMoney(selectedOrder.serviceFeeCny)}</p>
-                    <p>国际运费：{formatMoney(selectedOrder.internationalShippingFeeCny)}</p>
-                    <p>包装费：{formatMoney(selectedOrder.packageFeeCny)}</p>
-                    <p className="font-semibold text-ink">订单金额：{formatMoney(selectedOrder.totalAmountCny)}</p>
+                    <p>Product amount: {formatMoney(selectedOrder.productTotalCny)}</p>
+                    <p>Service fee: {formatMoney(selectedOrder.serviceFeeCny)}</p>
+                    <p>International shipping: {formatMoney(selectedOrder.internationalShippingFeeCny)}</p>
+                    <p>Packaging fee: {formatMoney(selectedOrder.packageFeeCny)}</p>
+                    <p className="font-semibold text-ink">Total: {formatMoney(selectedOrder.totalAmountCny)}</p>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                  <p className="font-semibold">处理信息</p>
+                  <p className="font-semibold">Processing</p>
                   <div className="mt-3 space-y-4">
                     <label className="block">
-                      <span className="mb-2 block text-sm">状态</span>
+                      <span className="mb-2 block text-sm">Status</span>
                       <select
                         value={selectedOrder.status}
                         onChange={(event) =>
@@ -334,7 +345,7 @@ export function AdminOrdersClient() {
                     </label>
 
                     <label className="block">
-                      <span className="mb-2 block text-sm">管理员备注</span>
+                      <span className="mb-2 block text-sm">Admin note</span>
                       <textarea
                         value={selectedOrder.adminNote ?? ""}
                         onChange={(event) =>
@@ -344,14 +355,14 @@ export function AdminOrdersClient() {
                         }
                         rows={5}
                         className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 outline-none"
-                        placeholder="输入内部处理备注"
+                        placeholder="Internal processing note"
                       />
                     </label>
 
                     <div className="flex items-center justify-between gap-3">
-                      <p className="subtle text-sm">当前状态：{getOrderStatusLabel(selectedOrder.status)}</p>
+                      <p className="subtle text-sm">Current: {getOrderStatusLabel(selectedOrder.status)}</p>
                       <button type="button" onClick={handleSave} className="cta" disabled={isSaving || isDetailLoading}>
-                        {isSaving ? "保存中..." : "保存"}
+                        {isSaving ? "Saving..." : "Save"}
                       </button>
                     </div>
                   </div>

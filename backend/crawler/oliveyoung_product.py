@@ -15,25 +15,6 @@ def _extract_goods_no(product_id: str) -> str | None:
     return match.group(1) if match else None
 
 
-def get_product_detail(product_id: str) -> Product | None:
-    for product in get_cached_products():
-        if _matches_product(product, product_id):
-            return product
-
-    goods_no = _extract_goods_no(product_id)
-    if goods_no:
-        product = get_product_by_goods_no(goods_no)
-        if product is not None:
-            return product
-
-    _, products = search_products("")
-    for product in products:
-        if _matches_product(product, product_id):
-            return product
-
-    return None
-
-
 def get_products_by_ids(product_ids: list[str]) -> dict[str, Product]:
     """Resolve product ids in one pass through current crawler cache.
 

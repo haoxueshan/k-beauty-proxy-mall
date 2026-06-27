@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -35,7 +35,7 @@ export function CartClient() {
     if (!user) {
       return;
     }
-
+    // 登录后预填用户资料，不覆盖已手动输入的内容。
     setOrderForm((current) => ({
       receiverName: current.receiverName || user.name || "",
       receiverPhone: current.receiverPhone || user.phone || "",
@@ -49,7 +49,7 @@ export function CartClient() {
       setItems([]);
       return;
     }
-
+    // 使用后端 display 接口一次性获取购物车和商品信息。
     setIsLoading(true);
     setError("");
     getCartItems(token)
@@ -69,6 +69,7 @@ export function CartClient() {
     [items]
   );
   const totalAmount = useMemo(
+    // 金额统一按人民币参考价 priceCny 计算。
     () => items.reduce((sum, item) => sum + item.product.priceCny * item.quantity, 0),
     [items]
   );
@@ -119,6 +120,7 @@ export function CartClient() {
     setError("");
     try {
       await deleteCartItem(token, cartItemId);
+      // 删除成功后本地立即移除，避免整页重新加载。
       setItems((current) => current.filter((item) => item.id !== cartItemId));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "删除失败");
@@ -143,6 +145,7 @@ export function CartClient() {
         note: orderForm.note.trim()
       });
       setCreatedOrderNo(result.orderNo);
+      // 下单成功后购物车条目已转入订单，前端同步清空当前列表。
       setItems([]);
       setOrderForm((current) => ({
         ...current,
@@ -286,3 +289,5 @@ export function CartClient() {
     </AuthGate>
   );
 }
+
+

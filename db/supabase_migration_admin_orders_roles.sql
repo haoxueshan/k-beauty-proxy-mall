@@ -87,7 +87,26 @@ where updated_at is null;
 
 create index if not exists idx_orders_status on orders(status);
 
-insert into users (
+create table if not exists admin_users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  password_salt text not null,
+  password_hash text not null,
+  name text not null,
+  phone text,
+  role text not null default 'admin' check (role in ('admin', 'super_admin')),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists admin_auth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references admin_users(id) on delete cascade,
+  token text unique not null,
+  created_at timestamptz default now()
+);
+
+insert into admin_users (
   id,
   email,
   password_salt,
@@ -95,7 +114,6 @@ insert into users (
   name,
   phone,
   role,
-  is_admin,
   created_at,
   updated_at
 )
@@ -107,7 +125,6 @@ values (
   'admin',
   null,
   'super_admin',
-  true,
   now(),
   now()
 )
@@ -116,13 +133,4 @@ set password_salt = excluded.password_salt,
     password_hash = excluded.password_hash,
     name = excluded.name,
     role = 'super_admin',
-    is_admin = true,
     updated_at = now();
-
-insert into profiles (id, email, role, created_at)
-select id, email, role, created_at
-from users
-where email = 'haoxueshan5@gmail.com'
-on conflict (id) do update
-set email = excluded.email,
-    role = excluded.role;

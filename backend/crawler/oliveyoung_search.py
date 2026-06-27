@@ -5,7 +5,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import urlencode, urljoin
 
 from bs4 import BeautifulSoup
 
@@ -26,7 +26,7 @@ DEFAULT_PAGE_SIZE = 24
 DEFAULT_SORT = "ranking"
 MAX_PAGE_SIZE = 60
 PAGE_READY_TIMEOUT_SECONDS = 60
-PAGE_READY_POLL_SECONDS = 3
+PAGE_READY_POLL_SECONDS = 1
 
 SOURCE_LIVE_SEARCH = "live_search"
 SOURCE_LIVE_MAIN = "live_main"
@@ -35,6 +35,7 @@ SOURCE_CACHE = "cache"
 SOURCE_SEED = "seed"
 
 
+# 当前先使用进程内缓存承接 MVP：后续可平滑替换为 Redis 或数据库持久缓存。
 @dataclass
 class CacheEntry:
     source: str
@@ -60,6 +61,7 @@ def _utcnow() -> datetime:
 
 
 def _playwright_proxy_config() -> dict[str, str] | None:
+    # 宝塔服务器访问 Olive Young 不稳定时，可用环境变量给 Playwright 注入代理。
     proxy_server = os.getenv("CRAWLER_PROXY_SERVER", "").strip()
     if not proxy_server:
         return None
@@ -78,34 +80,34 @@ def _seed_raw_products() -> list[RawCrawlerProduct]:
     return [
         RawCrawlerProduct(
             goods_no="A000000000001",
-            title_ko="라운드랩 자작나무 수분 선크림 50ml",
-            brand_ko="라운드랩",
+            title_ko="\ub77c\uc6b4\ub4dc\ub7a9 \uc790\uc791\ub098\ubb34 \uc218\ubd84 \uc120\ud06c\ub9bc 50ml",
+            brand_ko="\ub77c\uc6b4\ub4dc\ub7a9",
             image_url="https://images.unsplash.com/photo-1625772452859-1c03d5bf1137?auto=format&fit=crop&w=900&q=80",
             original_price_krw=26000,
             sale_price_krw=18900,
-            category_ko="선케어",
+            category_ko="\uc120\ucf00\uc5b4",
             source_url=_build_detail_url("A000000000001"),
             raw_data={},
         ),
         RawCrawlerProduct(
             goods_no="A000000000002",
-            title_ko="롬앤 쥬시 래스팅 틴트 23호",
+            title_ko="\ub86c\uc564 \uc96c\uc2dc \ub798\uc2a4\ud305 \ud2f4\ud2b8 23\ud638",
             brand_ko="rom&nd",
             image_url="https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=900&q=80",
             original_price_krw=13000,
             sale_price_krw=9800,
-            category_ko="립메이크업",
+            category_ko="\ub9bd\uba54\uc774\ud06c\uc5c5",
             source_url=_build_detail_url("A000000000002"),
             raw_data={},
         ),
         RawCrawlerProduct(
             goods_no="A000000000003",
-            title_ko="아누아 어성초 77 토너 250ml",
-            brand_ko="아누아",
+            title_ko="\uc544\ub204\uc544 \uc5b4\uc131\ucd08 77 \ud1a0\ub108 250ml",
+            brand_ko="\uc544\ub204\uc544",
             image_url="https://images.unsplash.com/photo-1556228578-dd6c474e2113?auto=format&fit=crop&w=900&q=80",
             original_price_krw=29000,
             sale_price_krw=21500,
-            category_ko="스킨케어",
+            category_ko="\uc2a4\ud0a8\ucf00\uc5b4",
             source_url=_build_detail_url("A000000000003"),
             raw_data={},
         ),
@@ -133,10 +135,38 @@ def _normalize_sort(value: str | None) -> str:
     return normalized or DEFAULT_SORT
 
 
-def _build_search_url(keyword_ko: str, *, page: int = 1, sort: str = DEFAULT_SORT) -> str:
-    # Assumption: Olive Young accepts pageIdx/sort as URL parameters on the search page.
-    # If the site changes or exposes different pagination params, this function is the only place to update.
-    query = f"query={quote_plus(keyword_ko)}&pageIdx={_normalize_page(page)}&sort={quote_plus(_normalize_sort(sort))}"
+def _build_search_params(
+    keyword_ko: str,
+    *,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    sort: str = DEFAULT_SORT,
+) -> dict[str, object]:
+    # Olive Young 搜索页通过 startCount 做分页偏移，前端页码需要在这里转换。
+    page = _normalize_page(page)
+    page_size = _normalize_page_size(page_size)
+    start_count = (page - 1) * page_size
+    return {
+        "startCount": start_count,
+        "sort": _normalize_sort(sort),
+        "goods_sort": "WEIGHT/DESC,RANK/DESC",
+        "collection": "ALL",
+        "realQuery": keyword_ko,
+        "query": keyword_ko,
+        "viewtype": "image",
+        "typeChk": "thum",
+        "listnum": page_size,
+    }
+
+
+def _build_search_url(
+    keyword_ko: str,
+    *,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    sort: str = DEFAULT_SORT,
+) -> str:
+    query = urlencode(_build_search_params(keyword_ko, page=page, page_size=page_size, sort=sort))
     return f"{OLIVE_YOUNG_SEARCH_URL}?{query}"
 
 
@@ -177,19 +207,19 @@ def _extract_brand(title_ko: str) -> str:
 
 def _infer_category(title_ko: str) -> str:
     lowered = title_ko.lower()
-    if any(keyword in lowered for keyword in ["선크림", "선블록", "선케어", "sunscreen", "sun cream"]):
-        return "선케어"
-    if any(keyword in lowered for keyword in ["립", "틴트", "립밤", "lip", "tint"]):
-        return "립메이크업"
-    if any(keyword in lowered for keyword in ["클렌징", "클렌저", "폼", "cleansing", "cleanser"]):
-        return "클렌징"
-    if any(keyword in lowered for keyword in ["마스크", "팩", "mask", "pack"]):
-        return "마스크팩"
-    if any(keyword in lowered for keyword in ["샴푸", "헤어", "hair", "scalp"]):
-        return "헤어케어"
-    if any(keyword in lowered for keyword in ["쿠션", "파운데이션", "베이스", "cushion", "foundation"]):
-        return "베이스메이크업"
-    return "스킨케어"
+    if any(keyword in lowered for keyword in ["sun", "sunscreen", "sun cream", "\uc120\ud06c\ub9bc", "\uc120\ucf00\uc5b4"]):
+        return "\uc120\ucf00\uc5b4"
+    if any(keyword in lowered for keyword in ["lip", "tint", "\ub9bd", "\ud2f4\ud2b8", "\ub9bd\ubc24"]):
+        return "\ub9bd\uba54\uc774\ud06c\uc5c5"
+    if any(keyword in lowered for keyword in ["cleansing", "cleanser", "\ud074\ub80c\uc9d5"]):
+        return "\ud074\ub80c\uc9d5"
+    if any(keyword in lowered for keyword in ["mask", "pack", "\ub9c8\uc2a4\ud06c", "\ud329"]):
+        return "\ub9c8\uc2a4\ud06c\ud329"
+    if any(keyword in lowered for keyword in ["hair", "scalp", "shampoo", "\ud5e4\uc5b4", "\uc0f4\ud478"]):
+        return "\ud5e4\uc5b4\ucf00\uc5b4"
+    if any(keyword in lowered for keyword in ["cushion", "foundation", "\ucfe0\uc158", "\ud30c\uc6b4\ub370\uc774\uc158", "\ubca0\uc774\uc2a4"]):
+        return "\ubca0\uc774\uc2a4\uba54\uc774\ud06c\uc5c5"
+    return "\uc2a4\ud0a8\ucf00\uc5b4"
 
 
 def _get_image_url(image_node) -> str:
@@ -279,6 +309,7 @@ def _build_cache_entry(
 
 
 def _seed_cache_entry(limit: int = FALLBACK_RECOMMENDATION_LIMIT) -> CacheEntry:
+    # seed 只作为备用推荐返回，不能混入主搜索结果，避免误导用户。
     fetched_at = _utcnow()
     return _build_cache_entry(
         source="fallback-seed",
@@ -296,6 +327,7 @@ def _is_cache_fresh(entry: CacheEntry | None) -> bool:
 
 
 def _html_has_product_signal(html: str) -> bool:
+    # 用多个商品特征判断页面是否可解析，减少因单个选择器变化导致的误判。
     signals = (
         "goodsNo",
         "goods_no",
@@ -311,12 +343,13 @@ def _html_has_product_signal(html: str) -> bool:
 
 
 def _html_is_cloudflare_wait(html: str) -> bool:
+    # Cloudflare 等待页会继续轮询，只有超时仍未放行才认为被拦截。
     return any(
         signal in html
         for signal in (
             "window._cf_chl_opt",
             "cf_chl_rt_tk",
-            "잠시만 기다려 주세요",
+            "\uc7a0\uc2dc\ub9cc \uae30\ub2e4\ub824 \uc8fc\uc138\uc694",
         )
     )
 
@@ -336,22 +369,26 @@ def _fetch_page_html(
     *,
     scroll_steps: int = 3,
 ) -> str:
+    # diagnostics 和正式搜索共用这套等待逻辑，保证排查结果能反映真实接口行为。
     from playwright.sync_api import sync_playwright
+    from playwright_stealth import Stealth
 
-    with sync_playwright() as playwright:
+    with Stealth().use_sync(sync_playwright()) as playwright:
         launch_options: dict[str, object] = {
             "headless": True,
             "args": [
+                "--disable-dev-shm-usage",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
             ],
         }
+
         proxy = _playwright_proxy_config()
         if proxy:
             launch_options["proxy"] = proxy
 
         browser = playwright.chromium.launch(**launch_options)
+
         try:
             page = browser.new_page(
                 locale="ko-KR",
@@ -364,13 +401,17 @@ def _fetch_page_html(
             )
 
             started_at = time.time()
+
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
             html = page.content()
             reason = "waiting_for_products"
+
+            # 最多等待 60 秒；每轮检测 HTML，商品信号出现后立即进入解析。
             while True:
                 html = page.content()
                 elapsed = time.time() - started_at
+
                 if _html_has_product_signal(html):
                     reason = "product_signals_found"
                     break
@@ -381,7 +422,11 @@ def _fetch_page_html(
                     reason = "waiting_for_products"
 
                 if elapsed >= PAGE_READY_TIMEOUT_SECONDS:
-                    reason = "blocked_by_cloudflare" if _html_is_cloudflare_wait(html) else "no_products_after_wait"
+                    reason = (
+                        "blocked_by_cloudflare"
+                        if _html_is_cloudflare_wait(html)
+                        else "no_products_after_wait"
+                    )
                     break
 
                 page.wait_for_timeout(PAGE_READY_POLL_SECONDS * 1000)
@@ -391,19 +436,22 @@ def _fetch_page_html(
                 page.wait_for_timeout(800)
 
             final_html = page.content()
+
             _set_last_page_fetch_debug(
                 reason=reason,
                 title=page.title(),
                 current_url=page.url,
                 wait_seconds=round(time.time() - started_at, 2),
-                product_count=final_html.count("goodsNo=") + final_html.count("data-ref-goodsno"),
+                product_count=final_html.count("goodsNo=")
+                + final_html.count("data-ref-goodsno"),
                 blocked_by_cloudflare=reason == "blocked_by_cloudflare",
                 url=url,
             )
+
             return final_html
+
         finally:
             browser.close()
-
 
 def _fetch_main_page_html() -> str:
     return _fetch_page_html(OLIVE_YOUNG_MAIN_URL)
@@ -413,10 +461,14 @@ def _fetch_search_page_html(
     keyword_ko: str,
     *,
     page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
     sort: str = DEFAULT_SORT,
     scroll_steps: int = 3,
 ) -> str:
-    return _fetch_page_html(_build_search_url(keyword_ko, page=page, sort=sort), scroll_steps=scroll_steps)
+    return _fetch_page_html(
+        _build_search_url(keyword_ko, page=page, page_size=page_size, sort=sort),
+        scroll_steps=scroll_steps,
+    )
 
 
 def _fetch_detail_page_html(goods_no: str) -> str:
@@ -437,6 +489,7 @@ def _parse_product_list_page_products(
     sort: str = DEFAULT_SORT,
     synced_at: datetime | None = None,
 ) -> list[RawCrawlerProduct]:
+    # 列表页只记录当前页内排序 source_rank，页码属于 SearchResponse 结果层级。
     soup = BeautifulSoup(html, "html.parser")
     seen_goods_no: set[str] = set()
     parsed_products: list[RawCrawlerProduct] = []
@@ -523,7 +576,7 @@ def _get_meta_content(soup: BeautifulSoup, property_name: str) -> str:
 
 
 def _clean_detail_title(title: str) -> str:
-    return re.sub(r"\s*\|\s*올리브영\s*$", "", title).strip()
+    return re.sub(r"\s*\|\s*\uc62c\ub9ac\ube0c\uc601\s*$", "", title).strip()
 
 
 def _parse_detail_page_product(html: str, goods_no: str) -> RawCrawlerProduct | None:
@@ -562,26 +615,52 @@ def _parse_detail_page_product(html: str, goods_no: str) -> RawCrawlerProduct | 
 
 def _fetch_live_main_entry(limit: int = DEFAULT_PAGE_SIZE) -> CacheEntry:
     fetched_at = _utcnow()
+    source = "oliveyoung-main-playwright"
+    source_url = OLIVE_YOUNG_MAIN_URL
     html = _fetch_main_page_html()
     raw_products = _parse_product_list_page_products(
         html,
-        OLIVE_YOUNG_MAIN_URL,
+        source_url,
         limit=limit,
         page=1,
         page_size=limit,
         synced_at=fetched_at,
     )
+
     if not raw_products:
         raise RuntimeError("Olive Young main page returned no products")
+
     return _build_cache_entry(
-        source="oliveyoung-main",
+        source=source,
         source_type=SOURCE_LIVE_MAIN,
         fetched_at=fetched_at,
         products=raw_products,
         page=1,
         page_size=limit,
-        oliveyoung_page_url=OLIVE_YOUNG_MAIN_URL,
+        oliveyoung_page_url=source_url,
     )
+
+
+def _slice_page_products(products: list[RawCrawlerProduct], *, page: int, page_size: int) -> list[RawCrawlerProduct]:
+    # 对外展示时重新计算当前页排名，避免前端展示“全局第 N 位”。
+    offset = (page - 1) * page_size
+    raw_products = []
+    for local_rank, product in enumerate(products[offset : offset + page_size], start=1):
+        raw_data = dict(product.raw_data)
+        raw_data.pop("source_page", None)
+        raw_data["source_rank"] = local_rank
+        raw_products.append(product.model_copy(update={"raw_data": raw_data}))
+    return raw_products
+
+
+def _rank_current_page_products(products: list[RawCrawlerProduct]) -> list[RawCrawlerProduct]:
+    raw_products = []
+    for local_rank, product in enumerate(products, start=1):
+        raw_data = dict(product.raw_data)
+        raw_data.pop("source_page", None)
+        raw_data["source_rank"] = local_rank
+        raw_products.append(product.model_copy(update={"raw_data": raw_data}))
+    return raw_products
 
 
 def _fetch_live_search_entry(
@@ -595,10 +674,18 @@ def _fetch_live_search_entry(
     page_size = _normalize_page_size(page_size)
     sort = _normalize_sort(sort)
     fetched_at = _utcnow()
-    search_url = _build_search_url(keyword_ko, page=page, sort=sort)
+    search_url = _build_search_url(keyword_ko, page=page, page_size=page_size, sort=sort)
+    source = "oliveyoung-search-playwright"
+    # 部分 Olive Young 搜索返回会包含从第一页累计到当前页的数据，因此先抓到当前页末尾再切片。
     fetch_limit = page * page_size
     scroll_steps = min(max(3, page + 3), 10)
-    html = _fetch_search_page_html(keyword_ko, page=page, sort=sort, scroll_steps=scroll_steps)
+    html = _fetch_search_page_html(
+        keyword_ko,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+        scroll_steps=scroll_steps,
+    )
     all_products = _parse_product_list_page_products(
         html,
         search_url,
@@ -612,18 +699,18 @@ def _fetch_live_search_entry(
     if not all_products:
         debug = get_last_page_fetch_debug()
         reason = str(debug.get("reason") or "no_products_after_wait")
-        if reason in {"blocked_by_cloudflare", "no_products_after_wait"}:
-            raise RuntimeError(reason)
+        raise RuntimeError(reason)
+    raw_products = _slice_page_products(all_products, page=page, page_size=page_size)
+    _set_last_page_fetch_debug(
+        **{
+            **get_last_page_fetch_debug(),
+            "playwright_used": True,
+            "final_source": source,
+        }
+    )
 
-    offset = (page - 1) * page_size
-    raw_products = []
-    for local_rank, product in enumerate(all_products[offset : offset + page_size], start=1):
-        raw_data = dict(product.raw_data)
-        raw_data.pop("source_page", None)
-        raw_data["source_rank"] = local_rank
-        raw_products.append(product.model_copy(update={"raw_data": raw_data}))
     return _build_cache_entry(
-        source="oliveyoung-search",
+        source=source,
         source_type=SOURCE_LIVE_SEARCH,
         fetched_at=fetched_at,
         products=raw_products,
@@ -692,13 +779,15 @@ def _get_search_entry(
     page = _normalize_page(page)
     page_size = _normalize_page_size(page_size)
     sort = _normalize_sort(sort)
+    # 缓存 key 必须包含页码、页大小和排序，否则翻页会复用上一页商品。
     cache_key = f"{keyword_ko.strip().lower()}|page={page}|size={page_size}|sort={sort}"
     cached_entry = _search_cache.get(cache_key)
-    if _is_cache_fresh(cached_entry):
+    if _is_cache_fresh(cached_entry) and cached_entry is not None and cached_entry.products:
         return cached_entry, True
 
     live_entry = _fetch_live_search_entry(keyword_ko, page=page, page_size=page_size, sort=sort)
-    _search_cache[cache_key] = live_entry
+    if live_entry.products:
+        _search_cache[cache_key] = live_entry
     return live_entry, False
 
 
@@ -708,6 +797,7 @@ def _normalize_raw_products(
     served_source_type: str,
     last_synced_at: datetime | None,
 ) -> list[Product]:
+    # 标题翻译走批量调用，降低大模型请求次数，也保证同一批商品的 provider 元信息一致。
     if not raw_products:
         return []
 
@@ -781,6 +871,7 @@ def _build_search_response(
     fallback_last_synced_at: datetime | None = None,
     error: str | None = None,
 ) -> SearchResponse:
+    # items 只承载当前查询页真实/缓存结果；fallback_items 单独返回给前端做备用推荐区。
     items = _normalize_raw_products(
         primary_products,
         served_source_type=primary_source_type,
@@ -905,6 +996,7 @@ def sync_oliveyoung_products(
     page_size: int = DEFAULT_PAGE_SIZE,
     sort: str = DEFAULT_SORT,
 ) -> tuple[int, str]:
+    # 同步按钮只刷新当前 keyword + page + page_size + sort，不刷新全部搜索页。
     normalized_keyword = keyword.strip()
     if not normalized_keyword or normalized_keyword.lower() == "homepage":
         return sync_homepage_products(limit=page_size)
@@ -946,7 +1038,7 @@ def search_products_with_source(
                 page=page,
                 page_size=page_size,
                 sort=sort,
-                oliveyoung_page_url=_build_search_url(keyword_ko, page=page, sort=sort),
+                oliveyoung_page_url=_build_search_url(keyword_ko, page=page, page_size=page_size, sort=sort),
                 primary_products=[],
                 primary_source="oliveyoung-search-error",
                 primary_source_type=SOURCE_LIVE_SEARCH,

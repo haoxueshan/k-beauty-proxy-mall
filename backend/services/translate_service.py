@@ -145,6 +145,8 @@ TITLE_REPLACEMENTS = {
 }
 
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
+EDGE_PUNCTUATION_PATTERN = re.compile(r"^[\s,，、。.!！?？;；:：/\\|]+|[\s,，、。.!！?？;；:：/\\|]+$")
+BROKEN_INPUT_PATTERN = re.compile(r"^\?+$")
 KEYWORD_DICTIONARY_PATH = Path(
     os.getenv(
         "KEYWORD_DICTIONARY_PATH",
@@ -155,7 +157,25 @@ _keyword_dictionary_lock = threading.Lock()
 
 
 def _normalize_keyword(keyword: str) -> str:
-    return " ".join(keyword.strip().split())
+    normalized = " ".join(keyword.strip().split())
+    return EDGE_PUNCTUATION_PATTERN.sub("", normalized)
+
+
+def _looks_like_broken_input(keyword: str) -> bool:
+    return bool(BROKEN_INPUT_PATTERN.fullmatch(keyword.strip()))
+
+
+def _find_keyword_mapping(normalized: str, mapping: dict[str, str]) -> str | None:
+    exact_match = mapping.get(normalized)
+    if exact_match:
+        return exact_match
+
+    for source_keyword, target_keyword in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+        if not source_keyword or _looks_like_broken_input(source_keyword):
+            continue
+        if source_keyword in normalized:
+            return target_keyword
+    return None
 
 
 def _normalize_mapping(mapping: dict[str, object]) -> dict[str, str]:
@@ -165,7 +185,7 @@ def _normalize_mapping(mapping: dict[str, object]) -> dict[str, str]:
             continue
         source_keyword = _normalize_keyword(source)
         target_keyword = _normalize_keyword(target)
-        if source_keyword and target_keyword:
+        if source_keyword and target_keyword and not _looks_like_broken_input(source_keyword):
             normalized[source_keyword] = target_keyword
     return normalized
 
@@ -213,7 +233,10 @@ def keyword_to_korean(keyword: str) -> str:
     with _keyword_dictionary_lock:
         mapping = _read_keyword_dictionary()
 
-    mapped_keyword = mapping.get(normalized)
+    if _looks_like_broken_input(normalized):
+        return normalized
+
+    mapped_keyword = _find_keyword_mapping(normalized, mapping)
     if mapped_keyword:
         return mapped_keyword
 
@@ -223,7 +246,7 @@ def keyword_to_korean(keyword: str) -> str:
 
     result = translate_search_keyword_to_korean(normalized, fallback_text=normalized)
     translated_keyword = _normalize_keyword(result.translations[0] if result.translations else normalized)
-    if result.provider == "openai" and HANGUL_PATTERN.search(translated_keyword):
+    if result.provider == "deepseek" and HANGUL_PATTERN.search(translated_keyword):
         _save_keyword_translation(normalized, translated_keyword)
         return translated_keyword
 
@@ -277,7 +300,7 @@ def estimate_translation_confidence(
 
     if not normalized_translated:
         return 0.1
-    if provider == "openai":
+    if provider == "deepseek":
         return 0.93
     if provider == "cache":
         return 0.88

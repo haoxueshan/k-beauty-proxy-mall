@@ -12,13 +12,17 @@ import {
 } from "@/lib/mock-data";
 
 function normalizeApiBase(value?: string) {
+  // 允许生产环境配置完整后端地址，也允许本地通过 Next.js 同源代理访问。
   const trimmed = value?.trim().replace(/\/+$/, "") ?? "";
   return trimmed === "/" || trimmed === "." ? "" : trimmed;
 }
 
 export const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_BASE_URL);
+const KRW_TO_CNY_RATE = 0.0053;
+const FALLBACK_PRODUCT_IMAGE = mockProducts[0]?.imageUrl ?? "https://images.unsplash.com/photo-1556228578-dd6c474e2113?auto=format&fit=crop&w=900&q=80";
 
 function appendApiPath(base: string, path: string) {
+  // 避免 NEXT_PUBLIC_API_BASE_URL 已经带 /api 时重复拼成 /api/api/xxx。
   if (base.endsWith("/api") && path.startsWith("/api/")) {
     return `${base}${path.slice(4)}`;
   }
@@ -35,6 +39,7 @@ function getServerApiBase() {
 }
 
 function buildApiUrl(path: string) {
+  // 浏览器端优先同源请求；服务端渲染时用内部后端地址，适配宝塔前后端分端口部署。
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   if (API_BASE) {
     return appendApiPath(API_BASE, normalizedPath);
@@ -93,6 +98,7 @@ export type OrderCreateResult = {
 };
 
 async function safeFetch<T>(path: string, fallback: T): Promise<T> {
+  // 仅用于非关键页面的兜底读取；真实搜索/下单类请求应使用 liveFetch/authFetch 暴露错误。
   try {
     const response = await fetch(buildApiUrl(path), {
       cache: "no-store"
@@ -107,6 +113,7 @@ async function safeFetch<T>(path: string, fallback: T): Promise<T> {
 }
 
 async function liveFetch<T>(path: string): Promise<T> {
+  // Olive Young 实时搜索需要把后端错误展示给用户，所以这里不吞掉异常。
   const response = await fetch(buildApiUrl(path), {
     cache: "no-store"
   });
@@ -118,27 +125,40 @@ async function liveFetch<T>(path: string): Promise<T> {
 }
 
 function normalizeProduct(payload: any): Product {
+  // 后端和旧 mock 数据同时兼容 snake_case/camelCase，前端内部统一用 camelCase。
+  const goodsNo = payload.goodsNo ?? payload.goods_no ?? payload.goodsNo ?? "";
+  const salePriceKrw = Number(payload.salePriceKrw ?? payload.sale_price_krw ?? 0) || 0;
+  const originalPriceKrw = Number(payload.originalPriceKrw ?? payload.original_price_krw ?? salePriceKrw) || salePriceKrw;
+  const priceCny =
+    Number(payload.priceCny ?? payload.price_cny ?? payload.proxyPriceCny ?? payload.proxy_price_cny) ||
+    Number((salePriceKrw * KRW_TO_CNY_RATE).toFixed(2));
+  const titleKo = payload.titleKo ?? payload.title_ko ?? "";
+  const titleZh = payload.titleZh ?? payload.title_zh ?? titleKo ?? "待确认商品";
+  const brandKo = payload.brandKo ?? payload.brand_ko ?? "";
+  const brandZh = payload.brandZh ?? payload.brand_zh ?? brandKo ?? "待确认品牌";
+
   return {
-    id: payload.id,
-    goodsNo: payload.goodsNo ?? payload.goods_no,
-    titleZh: payload.titleZh ?? payload.title_zh,
-    titleKo: payload.titleKo ?? payload.title_ko,
-    brandZh: payload.brandZh ?? payload.brand_zh,
-    brandKo: payload.brandKo ?? payload.brand_ko,
-    imageUrl: payload.imageUrl ?? payload.image_url,
-    salePriceKrw: payload.salePriceKrw ?? payload.sale_price_krw,
-    originalPriceKrw: payload.originalPriceKrw ?? payload.original_price_krw,
-    priceCny: payload.priceCny ?? payload.price_cny ?? payload.proxyPriceCny ?? payload.proxy_price_cny ?? 0,
-    proxyPriceCny: payload.proxyPriceCny ?? payload.proxy_price_cny ?? undefined,
-    categoryZh: payload.categoryZh ?? payload.category_zh,
-    aiSummary: payload.aiSummary ?? payload.ai_summary,
+    id: payload.id ?? (goodsNo ? `oy-${goodsNo}` : `oy-http-${encodeURIComponent(titleKo || titleZh)}`),
+    goodsNo,
+    titleZh,
+    titleKo,
+    brandZh,
+    brandKo,
+    imageUrl: payload.imageUrl ?? payload.image_url ?? FALLBACK_PRODUCT_IMAGE,
+    salePriceKrw,
+    originalPriceKrw,
+    priceCny,
+    proxyPriceCny: payload.proxyPriceCny ?? payload.proxy_price_cny ?? priceCny,
+    categoryZh: payload.categoryZh ?? payload.category_zh ?? "Olive Young",
+    aiSummary: payload.aiSummary ?? payload.ai_summary ?? `${titleZh} 来自 Olive Young 抓取结果，价格与库存下单前需核对。`,
     riskTips: payload.riskTips ?? payload.risk_tips ?? [],
-    sourceUrl: payload.sourceUrl ?? payload.source_url,
+    sourceUrl: payload.sourceUrl ?? payload.source_url ?? "",
     metadata: normalizeProductMetadata(payload.metadata, payload)
   };
 }
 
 function normalizeProductMetadata(metadataPayload: any, productPayload?: any): ProductMetadata {
+  // 元信息可能在 metadata 内，也可能由旧接口直接挂在商品上，这里集中做兼容。
   const source = metadataPayload ?? {};
   const fallback = productPayload ?? {};
   return {
@@ -210,6 +230,7 @@ function normalizeOrder(payload: any): Order {
         titleZh: item.titleZh ?? item.title_zh ?? "",
         titleKo: item.titleKo ?? item.title_ko ?? "",
         selectedOption: item.selectedOption ?? item.selected_option ?? null,
+        note: item.note ?? null,
         quantity: item.quantity ?? 1,
         unitPriceCny: item.unitPriceCny ?? item.unit_price_cny ?? 0,
         subtotalCny: item.subtotalCny ?? item.subtotal_cny ?? 0
@@ -259,6 +280,7 @@ function normalizeCartEntry(payload: any): CartEntry {
     id: payload.id,
     userId: payload.userId ?? payload.user_id,
     productId: payload.productId ?? payload.product_id,
+    sourceUrl: payload.sourceUrl ?? payload.source_url ?? null,
     quantity: payload.quantity ?? 1,
     selectedOption: payload.selectedOption ?? payload.selected_option ?? null,
     note: payload.note ?? null,
@@ -277,7 +299,23 @@ function normalizeCartDisplayItem(payload: any): CartDisplayItem | null {
 }
 
 function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductSearchResult {
-  const items = Array.isArray(payload.items) ? payload.items.map(normalizeProduct) : fallbackItems;
+  // 兼容两类搜索返回：新版 SearchResponse(items) 与早期 HTTP 爬虫返回(products)。
+  const hasHttpProducts = Array.isArray(payload.products);
+  const items = Array.isArray(payload.items)
+    ? payload.items.map(normalizeProduct)
+    : hasHttpProducts
+      ? payload.products.map((product: any, index: number) =>
+          normalizeProduct({
+            ...product,
+            metadata: {
+              ...(product.metadata ?? {}),
+              source_type: "live_search",
+              source_rank: index + 1,
+              keyword_ko: payload.keyword_ko ?? payload.keyword
+            }
+          })
+        )
+      : fallbackItems;
   const normalizedFallbackItems = Array.isArray(payload.fallbackItems)
     ? payload.fallbackItems.map(normalizeProduct)
     : Array.isArray(payload.fallback_items)
@@ -290,7 +328,16 @@ function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductS
     payload.resultMeta?.sourceType ??
     payload.result_meta?.source_type ??
     "live_search";
-  const resultMeta = normalizeResultSetMeta(payload.resultMeta ?? payload.result_meta, {
+  const resultMetaPayload =
+    payload.resultMeta ??
+    payload.result_meta ??
+    (hasHttpProducts
+      ? {
+          cache_layer: payload.cache === "hit" ? "memory" : "none",
+          item_count: items.length
+        }
+      : null);
+  const resultMeta = normalizeResultSetMeta(resultMetaPayload, {
     source,
     sourceType,
     itemCount: items.length
@@ -298,7 +345,7 @@ function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductS
   const fallbackMetaPayload = payload.fallbackMeta ?? payload.fallback_meta;
   return {
     keywordOriginal: payload.keywordOriginal ?? payload.keyword_original ?? payload.keyword ?? "",
-    keywordKo: payload.keywordKo ?? payload.keyword_ko ?? "",
+    keywordKo: payload.keywordKo ?? payload.keyword_ko ?? payload.keyword ?? "",
     count: payload.count ?? items.length,
     items,
     source,
@@ -314,11 +361,11 @@ function normalizeSearchResult(payload: any, fallbackItems: Product[]): ProductS
         })
       : null,
     page: payload.page ?? 1,
-    pageSize: payload.pageSize ?? payload.page_size ?? 24,
+    pageSize: payload.pageSize ?? payload.page_size ?? payload.limit ?? 24,
     sort: payload.sort ?? "ranking",
     hasNext: payload.hasNext ?? payload.has_next ?? false,
     nextPage: payload.nextPage ?? payload.next_page ?? null,
-    oliveyoungPageUrl: payload.oliveyoungPageUrl ?? payload.oliveyoung_page_url ?? null,
+    oliveyoungPageUrl: payload.oliveyoungPageUrl ?? payload.oliveyoung_page_url ?? payload.source_url ?? null,
     sourceRankStart: payload.sourceRankStart ?? payload.source_rank_start ?? null,
     syncedPages: payload.syncedPages ?? payload.synced_pages ?? [],
     error: payload.error ?? undefined
@@ -335,16 +382,22 @@ function normalizeCrawlerSyncResult(payload: any): CrawlerSyncResult {
   };
 }
 
+
 export async function searchProductResults(
   keyword: string,
   options?: { page?: number; pageSize?: number; sort?: string }
 ): Promise<ProductSearchResult> {
+  // 搜索页始终调用实时接口；失败时返回结构化空结果，而不是混入 mock 商品。
+  const page = options?.page ?? 1;
+  const pageSize = options?.pageSize ?? 48;
+  const sort = options?.sort ?? "ranking";
+
   try {
     const params = new URLSearchParams({
       q: keyword,
-      page: String(options?.page ?? 1),
-      page_size: String(options?.pageSize ?? 24),
-      sort: options?.sort ?? "ranking"
+      page: String(page),
+      page_size: String(Math.min(pageSize, 60)),
+      sort
     });
     const data = await liveFetch<any>(`/api/oliveyoung/search?${params.toString()}`);
     return normalizeSearchResult(data, []);
@@ -354,25 +407,25 @@ export async function searchProductResults(
       keywordKo: keyword,
       count: 0,
       items: [],
-      source: "oliveyoung-live-error",
+      source: "oliveyoung-search-error",
       sourceType: "live_search",
       resultMeta: normalizeResultSetMeta(null, {
-        source: "oliveyoung-live-error",
+        source: "oliveyoung-search-error",
         sourceType: "live_search",
         itemCount: 0
       }),
       fallbackCount: 0,
       fallbackItems: [],
       fallbackMeta: null,
-      page: options?.page ?? 1,
-      pageSize: options?.pageSize ?? 24,
-      sort: options?.sort ?? "ranking",
+      page,
+      pageSize,
+      sort,
       hasNext: false,
       nextPage: null,
       oliveyoungPageUrl: null,
       sourceRankStart: null,
       syncedPages: [],
-      error: requestError instanceof Error ? requestError.message : "Live crawler request failed"
+      error: requestError instanceof Error ? requestError.message : "Search request failed"
     };
   }
 }
@@ -398,12 +451,6 @@ export async function syncOliveYoungProducts(
     })
   });
   return normalizeCrawlerSyncResult(result);
-}
-
-export async function getProduct(id: string): Promise<Product | null> {
-  const fallback = mockProducts.find((product) => product.id === id) ?? null;
-  const product = await safeFetch<any | null>(`/api/products/${id}`, fallback);
-  return product ? normalizeProduct(product) : null;
 }
 
 export async function getOrders(): Promise<Order[]> {
@@ -432,13 +479,37 @@ export async function registerUser(payload: {
   email: string;
   password: string;
   name: string;
-  phone?: string;
+  phone: string;
+  verificationCode: string;
 }): Promise<{ token: string; user: User }> {
   const result = await authFetch<any>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      email: payload.email,
+      password: payload.password,
+      name: payload.name,
+      phone: payload.phone,
+      verification_code: payload.verificationCode
+    })
   });
   return { token: result.token, user: normalizeUser(result.user) };
+}
+
+export async function resetPassword(payload: {
+  email: string;
+  phone: string;
+  verificationCode: string;
+  newPassword: string;
+}): Promise<void> {
+  await authFetch("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({
+      email: payload.email,
+      phone: payload.phone,
+      verification_code: payload.verificationCode,
+      new_password: payload.newPassword
+    })
+  });
 }
 
 export async function loginUser(payload: {
@@ -547,7 +618,7 @@ export async function updateCartItem(
 
 export async function addCartItem(
   token: string,
-  payload: { productId: string; quantity?: number; selectedOption?: string; note?: string }
+  payload: { productId: string; sourceUrl?: string | null; quantity?: number; selectedOption?: string; note?: string }
 ): Promise<{ success: boolean; cartItemId: string }> {
   const result = await authFetch<any>("/api/cart/items", {
     method: "POST",
@@ -556,6 +627,7 @@ export async function addCartItem(
     },
     body: JSON.stringify({
       product_id: payload.productId,
+      source_url: payload.sourceUrl ?? null,
       quantity: payload.quantity ?? 1,
       selected_option: payload.selectedOption,
       note: payload.note
@@ -568,6 +640,7 @@ export async function addCartItem(
 }
 
 export async function getCartItems(token: string): Promise<CartDisplayItem[]> {
+  // 使用 display 接口一次性拿到购物车条目和商品信息，避免前端 N+1 请求。
   const result = await authFetch<any[]>("/api/cart/items/display", {
     headers: {
       Authorization: `Bearer ${token}`

@@ -20,9 +20,28 @@ create table if not exists profiles (
   created_at timestamptz default now()
 );
 
+create table if not exists admin_users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  password_salt text not null,
+  password_hash text not null,
+  name text not null,
+  phone text,
+  role text not null default 'admin' check (role in ('admin', 'super_admin')),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 create table if not exists auth_sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
+  token text unique not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists admin_auth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references admin_users(id) on delete cascade,
   token text unique not null,
   created_at timestamptz default now()
 );
@@ -69,6 +88,7 @@ create table if not exists cart_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
   product_id text not null,
+  source_url text,
   quantity integer default 1,
   selected_option text,
   note text,
@@ -105,6 +125,7 @@ create table if not exists order_items (
   title_zh text,
   title_ko text,
   selected_option text,
+  note text,
   quantity integer,
   unit_price_cny numeric,
   subtotal_cny numeric,

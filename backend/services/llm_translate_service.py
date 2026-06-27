@@ -8,20 +8,16 @@ from functools import lru_cache
 from typing import Sequence
 
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover - dependency is optional until installed
-    OpenAI = None  # type: ignore[assignment]
-
-
-DEFAULT_OPENAI_TRANSLATION_MODEL = "gpt-4o"
+DEFAULT_DEEPSEEK_TRANSLATION_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
 CODE_BLOCK_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 _translation_cache: dict[tuple[str, str, str], tuple[str, str | None]] = {}
-
+_keyword_translation_cache: dict[str, tuple[str, str | None]] = {}
 
 @dataclass(frozen=True)
 class TranslationBatchResult:
@@ -31,28 +27,30 @@ class TranslationBatchResult:
 
 
 def get_translation_settings() -> dict[str, str | bool]:
-    enabled = os.getenv("OPENAI_TRANSLATION_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+    # DeepSeek 采用 OpenAI-compatible SDK，部署时只需要配置 key/base_url/model。
+    enabled = os.getenv("DEEPSEEK_TRANSLATION_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
     return {
-        "api_key": os.getenv("OPENAI_API_KEY", "").strip(),
-        "model": os.getenv("OPENAI_TRANSLATION_MODEL", "").strip()
-        or os.getenv("OPENAI_MODEL", "").strip()
-        or DEFAULT_OPENAI_TRANSLATION_MODEL,
+        "api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
+        "base_url": os.getenv("DEEPSEEK_BASE_URL", "").strip() or DEFAULT_DEEPSEEK_BASE_URL,
+        "model": os.getenv("DEEPSEEK_TRANSLATION_MODEL", "").strip()
+        or os.getenv("DEEPSEEK_MODEL", "").strip()
+        or DEFAULT_DEEPSEEK_TRANSLATION_MODEL,
         "enabled": enabled,
     }
 
 
-def is_openai_translation_enabled() -> bool:
+def is_deepseek_translation_enabled() -> bool:
     settings = get_translation_settings()
-    return bool(settings["enabled"] and settings["api_key"] and OpenAI is not None)
+    return bool(settings["enabled"] and settings["api_key"])
 
 
 @lru_cache(maxsize=1)
-def _get_openai_client():
+def _get_deepseek_client() -> OpenAI:
     settings = get_translation_settings()
     api_key = str(settings["api_key"])
-    if not api_key or OpenAI is None:
-        return None
-    return OpenAI(api_key=api_key)
+    if not api_key:
+        raise RuntimeError("DeepSeek API key is not configured")
+    return OpenAI(api_key=api_key, base_url=str(settings["base_url"]))
 
 
 def _sanitize_model_output(text: str) -> str:
@@ -60,6 +58,7 @@ def _sanitize_model_output(text: str) -> str:
 
 
 def _parse_json_array(raw_output: str, expected_length: int) -> list[str]:
+    # 大模型偶尔会包一层 markdown 或解释文字，因此先截取 JSON 数组再解析。
     sanitized = _sanitize_model_output(raw_output)
     start = sanitized.find("[")
     end = sanitized.rfind("]")
@@ -82,53 +81,87 @@ def _should_translate_with_llm(text: str) -> bool:
     return bool(HANGUL_PATTERN.search(text))
 
 
-def _build_messages(texts: Sequence[str], source_language: str, target_language: str) -> list[dict]:
-    developer_message = {
-        "role": "developer",
-        "content": (
-            "You are a high-accuracy Korean-to-Simplified-Chinese product-title translator for Olive Young products. "
-            "Translate faithfully and literally enough that Chinese users can understand the original Korean title. "
-            "Keep the original information order and do not rewrite into advertising copy. "
-            "Do not summarize, omit, infer, add selling points, or split the title. "
-            "Translate Korean words into Simplified Chinese, while preserving official brand names, English words, SPF/PA values, "
-            "shade numbers, capacities, model codes, gift details, bundle/set details, punctuation, and parenthesized information. "
-            "If a Korean brand has a well-known official English name, use that English name. "
-            "Return only a JSON array of translated strings in the same order as the input."
-        ),
+def _request_deepseek_text(
+    messages: list[dict[str, str]],
+    *,
+    response_format: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    # 统一封装 DeepSeek 调用，标题翻译和搜索词翻译共用，便于后续替换模型。
+    settings = get_translation_settings()
+    model = str(settings["model"])
+    client = _get_deepseek_client()
+
+    request_body: dict[str, object] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "temperature": 0,
+        "extra_body": {
+            "thinking": {
+                "type": "disabled"
+            }
+        },
     }
+
+    if response_format is not None:
+        request_body["response_format"] = response_format
+
+    response = client.chat.completions.create(**request_body)
+    output_text = (response.choices[0].message.content or "").strip()
+
+    if not output_text:
+        raise ValueError("DeepSeek response text is empty")
+
+    return output_text, model
+
+
+def _build_translation_messages(
+    texts: Sequence[str],
+    source_language: str,
+    target_language: str,
+) -> list[dict[str, str]]:
+    # 标题翻译要求接近浏览器直译：保留品牌、规格、赠品和套装信息，不改写成营销标题。
     user_payload = [{"index": index, "text": text} for index, text in enumerate(texts)]
-    user_message = {
-        "role": "user",
-        "content": (
-            f"Translate the following items from {source_language} to {target_language}. "
-            "Output accurate plain Chinese translations only. Do not add explanations, subtitles, selling points, or extra words. "
-            "The output must not contain Korean Hangul unless it is an official brand or shade name that should be preserved.\n"
-            f"{json.dumps(user_payload, ensure_ascii=False)}"
-        ),
-    }
-    return [developer_message, user_message]
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a high-accuracy Korean-to-Simplified-Chinese product-title translator "
+                "for Olive Young products. Translate faithfully, like browser translation, not "
+                "advertising copy."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Translate each product title accurately into Simplified Chinese.\n"
+                "Keep the original information order. Do not rewrite, summarize, omit, infer, add selling points, "
+                "or split the title.\n"
+                "Preserve official brand names, English words, SPF/PA values, shade numbers, capacities, model codes, "
+                "gift details, bundle/set details, punctuation, and parenthesized information.\n"
+                "If a Korean brand has a well-known official English name, use that English name.\n"
+                "The output must not contain Korean Hangul unless it is an official brand or shade name that should "
+                "be preserved.\n"
+                "Return only a JSON array of translated strings in the same order as the input. Do not wrap it in markdown.\n"
+                f"Source language: {source_language}\n"
+                f"Target language: {target_language}\n"
+                f"Items: {json.dumps(user_payload, ensure_ascii=False)}"
+            ),
+        },
+    ]
 
 
-def _request_openai_translations(
+def _request_deepseek_translations(
     texts: Sequence[str],
     source_language: str,
     target_language: str,
 ) -> TranslationBatchResult:
-    client = _get_openai_client()
-    settings = get_translation_settings()
-    model = str(settings["model"])
-    if client is None:
-        raise RuntimeError("OpenAI client is not configured")
-
-    response = client.responses.create(
-        model=model,
-        input=_build_messages(texts, source_language, target_language),
-    )
-    output_text = getattr(response, "output_text", "")
+    messages = _build_translation_messages(texts, source_language, target_language)
+    output_text, model = _request_deepseek_text(messages)
     translations = _parse_json_array(output_text, len(texts))
     if any(HANGUL_PATTERN.search(translation) for translation in translations):
         raise ValueError("Translation response still contains Hangul")
-    return TranslationBatchResult(translations=translations, provider="openai", model=model)
+    return TranslationBatchResult(translations=translations, provider="deepseek", model=model)
 
 
 def _clean_single_keyword(raw_output: str) -> str:
@@ -138,7 +171,7 @@ def _clean_single_keyword(raw_output: str) -> str:
     try:
         parsed = json.loads(sanitized)
     except json.JSONDecodeError:
-      parsed = None
+        parsed = None
 
     if isinstance(parsed, str):
         sanitized = parsed
@@ -150,54 +183,56 @@ def _clean_single_keyword(raw_output: str) -> str:
             sanitized = value
 
     sanitized = re.sub(r"[\r\n\t]+", " ", sanitized)
-    sanitized = re.sub(r"[。.!！?？].*$", "", sanitized)
+    sanitized = re.sub(r"[。？！?!].*$", "", sanitized)
     return " ".join(sanitized.split()).strip()
 
-
 def translate_search_keyword_to_korean(keyword: str, fallback_text: str | None = None) -> TranslationBatchResult:
+    # 中文搜索词先转成韩文回源关键词；失败时回退原词，保证搜索链路不断。
     normalized_keyword = " ".join(keyword.strip().split())
     fallback = fallback_text or normalized_keyword
+
     if not normalized_keyword:
         return TranslationBatchResult(translations=[""], provider="fallback")
+
     if HANGUL_PATTERN.search(normalized_keyword):
         return TranslationBatchResult(translations=[normalized_keyword], provider="input")
-    if not is_openai_translation_enabled():
+
+    cache_key = normalized_keyword.lower()
+    if cache_key in _keyword_translation_cache:
+        cached_text, cached_model = _keyword_translation_cache[cache_key]
+        return TranslationBatchResult(translations=[cached_text], provider="cache", model=cached_model)
+
+    if not is_deepseek_translation_enabled():
         return TranslationBatchResult(translations=[fallback], provider="fallback")
 
-    client = _get_openai_client()
-    settings = get_translation_settings()
-    model = str(settings["model"])
-    if client is None:
-        return TranslationBatchResult(translations=[fallback], provider="fallback")
+    messages = [
+        {
+            "role": "system",
+            "content": "You translate Chinese beauty e-commerce search keywords into concise Korean shopping keywords.",
+        },
+        {
+            "role": "user",
+            "content": (
+                "Translate this Chinese beauty search keyword to one concise Korean Olive Young search keyword.\n"
+                "Return exactly one Korean keyword or phrase. Do not add explanations, punctuation, romanization, or Chinese.\n"
+                "Prefer common Korean shopping terms such as 선크림, 클렌징폼, 립스틱, 치약.\n"
+                f"Keyword: {normalized_keyword}"
+            ),
+        },
+    ]
 
     try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "developer",
-                    "content": (
-                        "You translate e-commerce beauty search keywords for Olive Young Korea. "
-                        "Return exactly one concise Korean search keyword or phrase. "
-                        "Prefer common Korean shopping terms such as 선크림, 클렌징폼, 토너, 세럼, 틴트. "
-                        "Do not add explanations, punctuation, romanization, or Chinese."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Translate this search keyword to Korean: {normalized_keyword}",
-                },
-            ],
-        )
-        translated_keyword = _clean_single_keyword(getattr(response, "output_text", ""))
+        output_text, model = _request_deepseek_text(messages)
+        translated_keyword = _clean_single_keyword(output_text)
     except Exception:
         return TranslationBatchResult(translations=[fallback], provider="fallback")
 
     if not translated_keyword or not HANGUL_PATTERN.search(translated_keyword):
         return TranslationBatchResult(translations=[fallback], provider="fallback")
 
-    return TranslationBatchResult(translations=[translated_keyword], provider="openai", model=model)
+    _keyword_translation_cache[cache_key] = (translated_keyword, model)
 
+    return TranslationBatchResult(translations=[translated_keyword], provider="deepseek", model=model)
 
 def translate_text(text: str, source_language: str, target_language: str, fallback_text: str | None = None) -> str:
     result = translate_texts(
@@ -216,6 +251,7 @@ def translate_texts(
     target_language: str,
     fallback_texts: Sequence[str] | None = None,
 ) -> TranslationBatchResult:
+    # 只把包含韩文的文本送去大模型，纯中文/英文内容直接复用 fallback，减少不必要调用。
     normalized_texts = [" ".join(text.strip().split()) for text in texts]
     if fallback_texts is not None and len(fallback_texts) != len(normalized_texts):
         raise ValueError("fallback_texts must match the length of texts")
@@ -247,12 +283,12 @@ def translate_texts(
         pending_indices.append(index)
         pending_texts.append(text)
 
-    if not pending_texts or not is_openai_translation_enabled():
+    if not pending_texts or not is_deepseek_translation_enabled():
         provider = "cache" if cached_count else "fallback"
         return TranslationBatchResult(translations=cached_or_fallback, provider=provider, model=cached_model)
 
     try:
-        batch_result = _request_openai_translations(pending_texts, source_language, target_language)
+        batch_result = _request_deepseek_translations(pending_texts, source_language, target_language)
     except Exception:
         return TranslationBatchResult(translations=cached_or_fallback, provider="fallback")
 

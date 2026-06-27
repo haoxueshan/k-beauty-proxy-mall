@@ -16,6 +16,7 @@ export default async function SearchPage({
 }: {
   searchParams?: { keyword?: string; sort?: string };
 }) {
+  // 搜索页是服务端组件：首屏直接等待后端搜索结果，避免客户端二次闪烁加载。
   const keyword = searchParams?.keyword ?? "";
   const sort = searchParams?.sort || "ranking";
   const result = await searchProductResults(keyword, { sort });
@@ -23,6 +24,7 @@ export default async function SearchPage({
   const fallbackProducts = result.fallbackItems;
   const primaryMeta = result.resultMeta;
   const fallbackMeta = result.fallbackMeta;
+  // 主搜索结果和备用推荐分区展示，备用推荐不计入主结果数量。
   const hasFallbackRecommendations = fallbackProducts.length > 0;
   const primaryIsFallback = isFallbackSource(result.sourceType);
   const hasPrimaryResults = products.length > 0;
@@ -120,11 +122,16 @@ export default async function SearchPage({
         </div>
 
         {hasPrimaryResults ? (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <>
+            {result.error ? (
+              <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{result.error}</p>
+            ) : null}
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {products.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </>
         ) : (
           <EmptySearchState
             keyword={keyword}
@@ -178,6 +185,7 @@ function EmptySearchState({
   error?: string;
   oliveyoungPageUrl?: string | null;
 }) {
+  // 空状态用用户语言提示下一步操作，而不是只展示后端错误或 0 条结果。
   const title = error ? "Olive Young 抓取失败" : "没有抓取到 Olive Young 商品";
   const description = error
     ? "可以刷新结果重试，或先查看下方备用推荐。"

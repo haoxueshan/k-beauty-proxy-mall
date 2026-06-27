@@ -13,7 +13,7 @@ type Props = {
   compact?: boolean;
 };
 
-export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = limit, sort = "ranking", compact = false }: Props) {
+export function SyncCrawlerButton({ keyword, limit = 48, page = 1, pageSize = limit, sort = "ranking", compact = false }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
@@ -21,6 +21,7 @@ export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = li
   const [isSyncing, setIsSyncing] = useState(false);
 
   async function handleSync() {
+    // 只刷新当前关键词、页码和排序对应的数据，避免用户翻页时误刷新全部页面。
     setIsSyncing(true);
     setMessage("");
     setError("");
@@ -34,6 +35,7 @@ export function SyncCrawlerButton({ keyword, limit = 24, page = 1, pageSize = li
 
       setMessage(`已刷新 ${result.count} 个商品，来源：${result.source || "Olive Young 首页"}`);
       startTransition(() => {
+        // 刷新服务端组件数据，同时让按钮保持过渡状态，减少页面突兀闪烁。
         router.refresh();
       });
     } catch (requestError) {

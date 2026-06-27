@@ -11,7 +11,8 @@ type LoginPayload = {
 
 type RegisterPayload = LoginPayload & {
   name: string;
-  phone?: string;
+  phone: string;
+  verificationCode: string;
 };
 
 type AuthContextValue = {

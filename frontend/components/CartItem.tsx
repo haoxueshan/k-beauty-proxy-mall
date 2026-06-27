@@ -63,6 +63,16 @@ export function CartItem({
         <div>
           <h3 className="text-lg font-semibold">{product.titleZh}</h3>
           <p className="text-sm subtle">{product.titleKo}</p>
+          {product.sourceUrl ? (
+            <a
+              href={product.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex text-sm font-semibold text-coral underline underline-offset-4"
+            >
+              官方链接
+            </a>
+          ) : null}
         </div>
         <p className="text-sm">规格：{selectedOption}</p>
         <div className="grid gap-3 md:grid-cols-[120px_1fr]">

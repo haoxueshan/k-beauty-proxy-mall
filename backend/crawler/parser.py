@@ -14,6 +14,7 @@ from services.translate_service import (
 
 
 def _coerce_datetime(value: object) -> datetime | None:
+    # 后端和 Supabase 可能返回 datetime 或 ISO 字符串，这里统一转成模型可用的时间。
     if isinstance(value, datetime):
         return value
     if not isinstance(value, str) or not value:
@@ -34,6 +35,7 @@ def _coerce_int(value: object) -> int | None:
 
 
 def _calculate_completeness_score(raw: RawCrawlerProduct, *, title_zh: str, brand_zh: str, category_zh: str) -> float:
+    # 完整度不是业务价格依据，只用于前端提示“这条商品数据是否足够完整”。
     score = 0.0
     checks = (
         (bool(raw.goods_no), 0.08),
@@ -62,6 +64,7 @@ def normalize_product(
     source_type: str,
     last_synced_at: datetime | None,
 ) -> Product:
+    # 把爬虫原始字段规范化为前端统一消费的 Product，所有可信度元信息都在这里汇总。
     category_zh = category_to_chinese(raw.category_ko)
     brand_zh = brand_to_chinese(raw.brand_ko)
     completeness_score = _calculate_completeness_score(
@@ -81,6 +84,7 @@ def normalize_product(
         translated_text=title_zh,
     )
 
+    # 当前金额统一使用 Olive Young 韩元售价折算人民币参考价，不再使用代购加价字段参与计算。
     price_cny = calculate_cny_reference(raw.sale_price_krw)
 
     return Product(

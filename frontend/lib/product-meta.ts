@@ -10,6 +10,11 @@ export const SOURCE_TYPE_LABELS: Record<string, string> = {
 
 export const SOURCE_LABELS: Record<string, string> = {
   "oliveyoung-search": "Olive Young 实时搜索抓取",
+  "oliveyoung-http-search": "Olive Young HTTP 搜索抓取",
+  "oliveyoung-http-category": "Olive Young HTTP 分类抓取",
+  "oliveyoung-http-ranking": "Olive Young HTTP 排行榜抓取",
+  "oliveyoung-http-detail": "Olive Young HTTP 详情抓取",
+  "oliveyoung-http-error": "Olive Young HTTP 抓取失败",
   "oliveyoung-main": "Olive Young 首页实时抓取",
   "oliveyoung-search-empty": "Olive Young 实时搜索无结果",
   "oliveyoung-search-error": "Olive Young 实时搜索失败",

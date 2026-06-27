@@ -10,6 +10,7 @@ def _parse_datetime(value: str) -> datetime:
 
 
 def list_orders(user_id: str | None = None, order_id: str | None = None) -> list[Order]:
+    # 先查订单主表，再一次性查出所有订单项，避免每个订单单独请求 Supabase。
     filters: dict[str, str] = {}
     if user_id:
         filters["user_id"] = f"eq.{user_id}"
@@ -33,7 +34,10 @@ def list_orders(user_id: str | None = None, order_id: str | None = None) -> list
         in_clause = ",".join(order_ids)
         item_rows = select_rows(
             "order_items",
-            columns="id,order_id,product_id,source_url,title_zh,title_ko,selected_option,quantity,unit_price_cny,subtotal_cny",
+            columns=(
+                "id,order_id,product_id,source_url,title_zh,title_ko,"
+                "selected_option,note,quantity,unit_price_cny,subtotal_cny"
+            ),
             filters={"order_id": f"in.({in_clause})"},
         )
         for row in item_rows:
@@ -45,6 +49,7 @@ def list_orders(user_id: str | None = None, order_id: str | None = None) -> list
                     title_zh=row.get("title_zh") or "",
                     title_ko=row.get("title_ko") or "",
                     selected_option=row.get("selected_option"),
+                    note=row.get("note"),
                     quantity=int(row.get("quantity") or 1),
                     unit_price_cny=float(row.get("unit_price_cny") or 0),
                     subtotal_cny=float(row.get("subtotal_cny") or 0),
@@ -76,6 +81,7 @@ def list_orders(user_id: str | None = None, order_id: str | None = None) -> list
 
 
 def _enrich_admin_orders(orders: list[Order]) -> list[AdminOrder]:
+    # 后台订单列表需要展示用户信息，这里批量补齐用户邮箱/姓名/手机号。
     user_ids = sorted({order.user_id for order in orders if order.user_id})
     users_by_id: dict[str, dict] = {}
 
@@ -124,7 +130,14 @@ def update_admin_order(order_id: str, status: str, admin_note: str | None) -> Ad
     return get_admin_order(order_id)
 
 
-def add_cart_item(user_id: str, product_id: str, quantity: int, selected_option: str | None, note: str | None) -> str:
+def add_cart_item(
+    user_id: str,
+    product_id: str,
+    source_url: str | None,
+    quantity: int,
+    selected_option: str | None,
+    note: str | None,
+) -> str:
     cart_item_id = str(uuid4())
     insert_rows(
         "cart_items",
@@ -132,6 +145,7 @@ def add_cart_item(user_id: str, product_id: str, quantity: int, selected_option:
             "id": cart_item_id,
             "user_id": user_id,
             "product_id": product_id,
+            "source_url": source_url,
             "quantity": quantity,
             "selected_option": selected_option,
             "note": note,
@@ -143,7 +157,7 @@ def add_cart_item(user_id: str, product_id: str, quantity: int, selected_option:
 def list_cart_items(user_id: str) -> list[CartItem]:
     rows = select_rows(
         "cart_items",
-        columns="id,user_id,product_id,quantity,selected_option,note,created_at",
+        columns="id,user_id,product_id,source_url,quantity,selected_option,note,created_at",
         filters={"user_id": f"eq.{user_id}"},
         order="created_at.desc",
     )
@@ -152,6 +166,7 @@ def list_cart_items(user_id: str) -> list[CartItem]:
             id=row["id"],
             user_id=row["user_id"],
             product_id=row["product_id"],
+            source_url=row.get("source_url"),
             quantity=int(row.get("quantity") or 1),
             selected_option=row.get("selected_option"),
             note=row.get("note"),
@@ -181,6 +196,7 @@ def update_cart_item(user_id: str, cart_item_id: str, quantity: int, note: str |
         id=row["id"],
         user_id=row["user_id"],
         product_id=row["product_id"],
+        source_url=row.get("source_url"),
         quantity=int(row.get("quantity") or 1),
         selected_option=row.get("selected_option"),
         note=row.get("note"),
@@ -194,7 +210,7 @@ def get_cart_items(user_id: str, cart_item_ids: list[str]) -> list[dict]:
     in_clause = ",".join(cart_item_ids)
     return select_rows(
         "cart_items",
-        columns="id,user_id,product_id,quantity,selected_option,note",
+        columns="id,user_id,product_id,source_url,quantity,selected_option,note",
         filters={
             "user_id": f"eq.{user_id}",
             "id": f"in.({in_clause})",
@@ -214,6 +230,7 @@ def delete_cart_item(user_id: str, cart_item_id: str) -> bool:
 
 
 def delete_order(user_id: str, order_id: str) -> bool:
+    # 删除前先校验订单归属，避免用户删除到别人的订单。
     existing_rows = select_rows(
         "orders",
         columns="id",
@@ -241,15 +258,20 @@ def delete_order(user_id: str, order_id: str) -> bool:
     return bool(deleted_rows)
 
 
-def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Product], user_id: str) -> Order:
+def create_order(
+    payload: OrderCreate,
+    cart_items: list[dict],
+    products_by_cart_product_id: dict[str, Product],
+    user_id: str,
+) -> Order:
+    # 新订单金额以商品 price_cny 为准；购物车项只负责数量、选项和备注。
     order_id = str(uuid4())
     order_no = f"OY{datetime.now():%Y%m%d}{uuid4().hex[:6].upper()}"
-    product_lookup = {product.id: product for product in products}
     order_items_payload: list[dict] = []
     total_amount = 0.0
 
     for cart_item in cart_items:
-        product = product_lookup.get(cart_item["product_id"])
+        product = products_by_cart_product_id.get(str(cart_item["product_id"]))
         if product is None:
             continue
 
@@ -262,10 +284,11 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
                 "id": str(uuid4()),
                 "order_id": order_id,
                 "product_id": product.id,
-                "source_url": product.source_url,
+                "source_url": cart_item.get("source_url") or product.source_url,
                 "title_zh": product.title_zh,
                 "title_ko": product.title_ko,
                 "selected_option": cart_item.get("selected_option"),
+                "note": cart_item.get("note"),
                 "quantity": quantity,
                 "unit_price_cny": unit_price,
                 "subtotal_cny": subtotal,
@@ -296,6 +319,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
                 title_zh=item["title_zh"],
                 title_ko=item["title_ko"],
                 selected_option=item.get("selected_option"),
+                note=item.get("note"),
                 quantity=int(item["quantity"]),
                 unit_price_cny=float(item["unit_price_cny"]),
                 subtotal_cny=float(item["subtotal_cny"]),
@@ -305,6 +329,7 @@ def create_order(payload: OrderCreate, cart_items: list[dict], products: list[Pr
         created_at=datetime.now(),
     )
 
+    # 当前 Supabase REST 调用不是数据库事务；若要强一致，可后续改为 PostgreSQL RPC。
     insert_rows(
         "orders",
         {

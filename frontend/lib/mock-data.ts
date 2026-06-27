@@ -36,6 +36,7 @@ export type OrderItem = {
   titleZh: string;
   titleKo: string;
   selectedOption?: string | null;
+  note?: string | null;
   quantity: number;
   unitPriceCny: number;
   subtotalCny: number;
@@ -78,6 +79,7 @@ export type CartEntry = {
   id: string;
   userId?: string;
   productId: string;
+  sourceUrl?: string | null;
   quantity: number;
   selectedOption?: string | null;
   note?: string | null;

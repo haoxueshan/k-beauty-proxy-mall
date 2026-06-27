@@ -8,9 +8,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from crawler.oliveyoung_product import get_product_detail, get_products_by_ids
+from crawler.oliveyoung_product import get_products_by_ids
 from crawler.oliveyoung_search import diagnose_oliveyoung_search, search_products_with_source, sync_oliveyoung_products
 from db.supabase_client import get_supabase_settings
 from schemas import (
@@ -30,6 +31,7 @@ from schemas import (
     LogoutResponse,
     OrderCreate,
     OrderResponse,
+    PasswordResetRequest,
     ReadinessCheck,
     ReadinessResponse,
     RegisterRequest,
@@ -37,10 +39,11 @@ from schemas import (
     TranslateRequest,
     TranslateResponse,
     UserPublic,
+    BasicSuccessResponse,
 )
 from settings import configure_logging, get_settings
 from services.llm_translate_service import translate_texts
-from services.auth_service import get_user_by_token, login_user, logout_user, register_user
+from services.auth_service import get_user_by_token, login_user, logout_user, register_user, reset_user_password
 from services.order_service import (
     add_cart_item,
     create_order,
@@ -71,6 +74,7 @@ def _is_port_available(host: str, port: int) -> bool:
 
 
 def _resolve_run_port(host: str, preferred_port: int, search_limit: int = 20) -> int:
+    # 本地开发可自动寻找空闲端口；生产环境建议固定端口并由 Nginx 反代。
     if _is_port_available(host, preferred_port):
         return preferred_port
 
@@ -103,8 +107,9 @@ if not settings.allow_all_hosts:
 
 
 def _build_readiness_response() -> ReadinessResponse:
+    # readiness 用于宝塔/Nginx 部署后快速确认关键外部依赖是否配置齐全。
     supabase = get_supabase_settings()
-    openai_api_key = os.getenv("OPENAI_API_KEY")
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
     checks = [
         ReadinessCheck(
             name="supabase_url",
@@ -130,9 +135,9 @@ def _build_readiness_response() -> ReadinessResponse:
             detail=",".join(settings.allowed_origins) if settings.allowed_origins else "No ALLOWED_ORIGINS configured",
         ),
         ReadinessCheck(
-            name="openai_api_key",
-            status="ok" if bool(openai_api_key) else "warning",
-            detail="Configured" if openai_api_key else "Optional: translation falls back locally",
+            name="deepseek_api_key",
+            status="ok" if bool(deepseek_api_key) else "warning",
+            detail="Configured" if deepseek_api_key else "Optional: translation falls back locally",
         ),
     ]
     overall_status = "ok" if all(check.status != "error" for check in checks) else "error"
@@ -172,6 +177,7 @@ def readiness():
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> UserPublic:
+    # 所有需要登录的接口统一走 Bearer token，避免每个路由重复解析 Authorization。
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header is required")
     scheme, _, token = authorization.partition(" ")
@@ -181,6 +187,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> UserPu
 
 
 def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
+    # 后台订单接口必须二次校验角色，不能只依赖前端隐藏入口。
     if user.role not in {"admin", "super_admin"}:
         raise HTTPException(status_code=403, detail="Admin permission is required")
     return user
@@ -196,6 +203,12 @@ def auth_register(payload: RegisterRequest) -> AuthResponse:
 def auth_login(payload: LoginRequest) -> AuthResponse:
     token, user = login_user(payload)
     return AuthResponse(token=token, user=user)
+
+
+@app.post("/api/auth/reset-password", response_model=BasicSuccessResponse)
+def auth_reset_password(payload: PasswordResetRequest) -> BasicSuccessResponse:
+    reset_user_password(payload)
+    return BasicSuccessResponse(success=True)
 
 
 @app.get("/api/auth/me", response_model=UserPublic)
@@ -226,22 +239,15 @@ def product_search(
     return search_products_with_source(keyword, page=page, page_size=page_size, sort=sort)
 
 
-@app.get("/api/oliveyoung/search", response_model=SearchResponse)
-def oliveyoung_search(
+@app.get("/api/oliveyoung/search")
+async def oliveyoung_search(
     q: str = "",
     page: int = 1,
     page_size: int = 24,
     sort: str = "ranking",
 ) -> SearchResponse:
-    return search_products_with_source(q, page=page, page_size=page_size, sort=sort)
-
-
-@app.get("/api/products/{product_id}")
-def product_detail(product_id: str):
-    product = get_product_detail(product_id)
-    if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return product
+    # Playwright 抓取是同步阻塞操作，放到线程池中执行，避免卡住 FastAPI 事件循环。
+    return await run_in_threadpool(search_products_with_source, q, page=page, page_size=page_size, sort=sort)
 
 
 @app.post("/api/translate", response_model=TranslateResponse)
@@ -287,6 +293,7 @@ def create_cart_item(payload: CartItemCreate, user: UserPublic = Depends(get_cur
     cart_item_id = add_cart_item(
         user.id,
         payload.product_id,
+        payload.source_url,
         payload.quantity,
         payload.selected_option,
         payload.note,
@@ -301,6 +308,7 @@ def cart_items(user: UserPublic = Depends(get_current_user)) -> list[CartItem]:
 
 @app.get("/api/cart/items/display", response_model=list[CartDisplayItem])
 def cart_display_items(user: UserPublic = Depends(get_current_user)) -> list[CartDisplayItem]:
+    # 给购物车页面一次性返回商品展示快照，避免前端 N+1 请求逐个查商品详情。
     items = list_cart_items(user.id)
     products_by_id = get_products_by_ids([item.product_id for item in items])
     return [
@@ -377,20 +385,18 @@ def remove_order(order_id: str, user: UserPublic = Depends(get_current_user)) ->
 
 @app.post("/api/orders", response_model=OrderResponse)
 def create_proxy_order(payload: OrderCreate, user: UserPublic = Depends(get_current_user)) -> OrderResponse:
+    # 下单前批量解析购物车商品，任一商品无法解析就阻止创建半成品订单。
     cart_items = get_cart_items(user.id, payload.cart_item_ids)
     if not cart_items:
         raise HTTPException(status_code=400, detail="No valid cart items selected")
 
-    products = []
-    for product_id in [item["product_id"] for item in cart_items]:
-        product = get_product_detail(product_id)
-        if product is not None:
-            products.append(product)
+    products_by_id = get_products_by_ids([item["product_id"] for item in cart_items])
 
-    if not products:
+    unresolved_product_ids = [item["product_id"] for item in cart_items if item["product_id"] not in products_by_id]
+    if unresolved_product_ids:
         raise HTTPException(status_code=400, detail="Selected cart items could not be resolved to products")
 
-    order = create_order(payload, cart_items, products, user.id)
+    order = create_order(payload, cart_items, products_by_id, user.id)
     return OrderResponse(order_id=order.id, order_no=order.order_no, status=order.status)
 
 if __name__ == "__main__":

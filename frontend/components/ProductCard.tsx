@@ -1,5 +1,4 @@
-import Image from "next/image";
-import Link from "next/link";
+﻿import Image from "next/image";
 import { AddToCartButton } from "@/components/AddToCartButton";
 import type { Product } from "@/lib/mock-data";
 import {
@@ -14,6 +13,7 @@ type Props = {
 };
 
 export function ProductCard({ product, variant = "primary" }: Props) {
+  // 商品卡片面向中文用户：中文标题为主，韩文标题用于核对。
   const metadata = getProductMetadata(product);
   const spec = getProductSpec(product);
   const fallback = variant === "fallback" || isFallbackSource(metadata.sourceType);
@@ -31,11 +31,12 @@ export function ProductCard({ product, variant = "primary" }: Props) {
           </span>
           {fallback ? (
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 shadow-sm">
-              备用推荐
+              澶囩敤鎺ㄨ崘
             </span>
           ) : null}
         </div>
       </div>
+
       <div className="space-y-4 p-5">
         <div className="space-y-2">
           <h3 className="text-2xl font-bold leading-snug text-ink">{title.zh}</h3>
@@ -43,9 +44,12 @@ export function ProductCard({ product, variant = "primary" }: Props) {
           <p className="text-sm">
             <span className="subtle">品牌：</span>
             <span className="font-semibold">{product.brandZh || product.brandKo}</span>
-            {product.brandKo && product.brandKo !== product.brandZh ? <span className="subtle"> / {product.brandKo}</span> : null}
+            {product.brandKo && product.brandKo !== product.brandZh ? (
+              <span className="subtle"> / {product.brandKo}</span>
+            ) : null}
           </p>
         </div>
+
         <div className="grid gap-2 rounded-2xl border border-black/10 bg-[#fffaf3] p-3 text-xs md:grid-cols-2">
           <p>
             <span className="subtle">Olive Young 排名：</span>
@@ -58,6 +62,7 @@ export function ProductCard({ product, variant = "primary" }: Props) {
             <span className="font-semibold">{spec ?? "待确认"}</span>
           </p>
         </div>
+
         <div className="rounded-3xl bg-[#fff8ef] p-4">
           <div>
             <p className="text-xs subtle">人民币参考价</p>
@@ -70,11 +75,9 @@ export function ProductCard({ product, variant = "primary" }: Props) {
             ) : null}
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr]">
-          <AddToCartButton productId={product.id} className="cta w-full" />
-          <Link href={`/products/${product.id}`} className="cta ghost w-full">
-            查看详情
-          </Link>
+
+        <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr]">
+          <AddToCartButton productId={product.id} sourceUrl={product.sourceUrl} className="cta w-full" />
           {product.sourceUrl ? (
             <a href={product.sourceUrl} target="_blank" rel="noreferrer" className="cta ghost w-full">
               官方链接
@@ -87,6 +90,7 @@ export function ProductCard({ product, variant = "primary" }: Props) {
 }
 
 function getCardSourceLabel(sourceType?: string, fallback = false) {
+  // 用用户能理解的来源标签，避免直接暴露技术字段。
   if (fallback) {
     return "备用推荐";
   }
@@ -97,6 +101,7 @@ function getCardSourceLabel(sourceType?: string, fallback = false) {
 }
 
 function getDisplayTitle(product: Product) {
+  // titleZh 仍含韩文时说明翻译未完成，主标题显示占位文案。
   const titleZh = product.titleZh?.trim();
   const titleKo = product.titleKo?.trim();
   const displayTitle = titleZh && !hasHangul(titleZh) ? titleZh : "";
@@ -110,3 +115,5 @@ function getDisplayTitle(product: Product) {
 function hasHangul(value: string) {
   return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(value);
 }
+
+

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class ProductMetadata(BaseModel):
+    # 单品级元信息：前端用它展示来源、同步时间、可信度和页内排名。
     last_synced_at: datetime | None = None
     source_type: str = "live_search"
     completeness_score: float = 0
@@ -17,6 +18,7 @@ class ProductMetadata(BaseModel):
 
 
 class ResultSetMeta(BaseModel):
+    # 结果集级元信息：描述本次搜索整体来源，避免把备用推荐伪装成主结果。
     source: str = "oliveyoung-live"
     source_type: str = "live_search"
     cache_layer: str = "none"
@@ -48,6 +50,7 @@ class Product(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    # items 是当前搜索页主结果；fallback_items 是备用推荐，两者必须分开消费。
     keyword_original: str
     keyword_ko: str
     count: int
@@ -87,6 +90,7 @@ class CrawlerSyncResponse(BaseModel):
 
 class CartItemCreate(BaseModel):
     product_id: str
+    source_url: str | None = None
     quantity: int = Field(default=1, ge=1)
     selected_option: str | None = None
     note: str | None = None
@@ -101,6 +105,7 @@ class CartItem(BaseModel):
     id: str
     user_id: str
     product_id: str
+    source_url: str | None = None
     quantity: int
     selected_option: str | None = None
     note: str | None = None
@@ -131,6 +136,7 @@ class OrderItemSummary(BaseModel):
     title_zh: str
     title_ko: str
     selected_option: str | None = None
+    note: str | None = None
     quantity: int
     unit_price_cny: float
     subtotal_cny: float
@@ -157,6 +163,7 @@ class Order(BaseModel):
 
 
 class CartDisplayItem(CartItem):
+    # 购物车展示接口返回购物车条目 + 商品信息，减少前端逐个请求商品详情。
     product: Product
 
 
@@ -211,12 +218,24 @@ class RegisterRequest(BaseModel):
     email: str
     password: str = Field(min_length=6)
     name: str = Field(min_length=2)
-    phone: str | None = None
+    phone: str = Field(min_length=4)
+    verification_code: str = Field(min_length=4, max_length=8)
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str = Field(min_length=6)
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+    phone: str = Field(min_length=4)
+    verification_code: str = Field(min_length=4, max_length=8)
+    new_password: str = Field(min_length=6)
+
+
+class BasicSuccessResponse(BaseModel):
+    success: bool
 
 
 class AuthResponse(BaseModel):
