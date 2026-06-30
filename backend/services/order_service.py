@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from uuid import uuid4
 
@@ -5,8 +6,79 @@ from db.supabase_client import delete_rows, insert_rows, select_rows, update_row
 from schemas import AdminOrder, CartItem, Order, OrderCreate, OrderItemSummary, Product
 
 
+CART_ITEM_COLUMNS = (
+    "id,user_id,product_id,source_url,title_zh,title_ko,image_url,"
+    "sale_price_krw,price_cny,brand_ko,quantity,selected_option,note,created_at"
+)
+
+
 def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _extract_goods_no(product_id: str) -> str:
+    match = re.search(r"(A\d{12})", str(product_id).upper())
+    return match.group(1) if match else str(product_id).replace("oy-", "")
+
+
+def cart_item_has_product_snapshot(cart_item: dict | CartItem) -> bool:
+    if isinstance(cart_item, CartItem):
+        return bool(cart_item.title_ko or cart_item.title_zh) and cart_item.price_cny is not None
+    return bool(cart_item.get("title_ko") or cart_item.get("title_zh")) and cart_item.get("price_cny") is not None
+
+
+def product_from_cart_snapshot(cart_item: dict | CartItem) -> Product | None:
+    if not cart_item_has_product_snapshot(cart_item):
+        return None
+
+    def read(key: str, default=None):
+        if isinstance(cart_item, CartItem):
+            return getattr(cart_item, key, default)
+        return cart_item.get(key, default)
+
+    product_id = str(read("product_id") or "")
+    title_ko = str(read("title_ko") or "")
+    title_zh = str(read("title_zh") or title_ko or "待确认商品")
+    sale_price_krw = int(read("sale_price_krw") or 0)
+    price_cny = float(read("price_cny") or 0)
+    brand_ko = str(read("brand_ko") or "")
+
+    return Product(
+        id=product_id,
+        goods_no=_extract_goods_no(product_id),
+        source_url=str(read("source_url") or ""),
+        brand_ko=brand_ko,
+        brand_zh=brand_ko,
+        title_ko=title_ko,
+        title_zh=title_zh,
+        image_url=str(read("image_url") or ""),
+        original_price_krw=sale_price_krw,
+        sale_price_krw=sale_price_krw,
+        price_cny=price_cny,
+        proxy_price_cny=price_cny,
+        category_zh="Olive Young",
+        ai_summary=f"{title_zh} 来自购物车商品快照，价格与库存下单前需打开官方链接核对。",
+        risk_tips=["购物车展示使用添加时的商品快照", "下单前请核对 Olive Young 官方价格与库存"],
+    )
+
+
+def _cart_item_from_row(row: dict) -> CartItem:
+    return CartItem(
+        id=row["id"],
+        user_id=row["user_id"],
+        product_id=row["product_id"],
+        source_url=row.get("source_url"),
+        title_zh=row.get("title_zh"),
+        title_ko=row.get("title_ko"),
+        image_url=row.get("image_url"),
+        sale_price_krw=int(row["sale_price_krw"]) if row.get("sale_price_krw") is not None else None,
+        price_cny=float(row["price_cny"]) if row.get("price_cny") is not None else None,
+        brand_ko=row.get("brand_ko"),
+        quantity=int(row.get("quantity") or 1),
+        selected_option=row.get("selected_option"),
+        note=row.get("note"),
+        created_at=_parse_datetime(row["created_at"]),
+    )
 
 
 def list_orders(user_id: str | None = None, order_id: str | None = None) -> list[Order]:
@@ -134,6 +206,12 @@ def add_cart_item(
     user_id: str,
     product_id: str,
     source_url: str | None,
+    title_zh: str | None,
+    title_ko: str | None,
+    image_url: str | None,
+    sale_price_krw: int | None,
+    price_cny: float | None,
+    brand_ko: str | None,
     quantity: int,
     selected_option: str | None,
     note: str | None,
@@ -146,6 +224,12 @@ def add_cart_item(
             "user_id": user_id,
             "product_id": product_id,
             "source_url": source_url,
+            "title_zh": title_zh,
+            "title_ko": title_ko,
+            "image_url": image_url,
+            "sale_price_krw": sale_price_krw,
+            "price_cny": price_cny,
+            "brand_ko": brand_ko,
             "quantity": quantity,
             "selected_option": selected_option,
             "note": note,
@@ -157,23 +241,11 @@ def add_cart_item(
 def list_cart_items(user_id: str) -> list[CartItem]:
     rows = select_rows(
         "cart_items",
-        columns="id,user_id,product_id,source_url,quantity,selected_option,note,created_at",
+        columns=CART_ITEM_COLUMNS,
         filters={"user_id": f"eq.{user_id}"},
         order="created_at.desc",
     )
-    return [
-        CartItem(
-            id=row["id"],
-            user_id=row["user_id"],
-            product_id=row["product_id"],
-            source_url=row.get("source_url"),
-            quantity=int(row.get("quantity") or 1),
-            selected_option=row.get("selected_option"),
-            note=row.get("note"),
-            created_at=_parse_datetime(row["created_at"]),
-        )
-        for row in rows
-    ]
+    return [_cart_item_from_row(row) for row in rows]
 
 
 def update_cart_item(user_id: str, cart_item_id: str, quantity: int, note: str | None) -> CartItem | None:
@@ -191,17 +263,7 @@ def update_cart_item(user_id: str, cart_item_id: str, quantity: int, note: str |
     if not rows:
         return None
 
-    row = rows[0]
-    return CartItem(
-        id=row["id"],
-        user_id=row["user_id"],
-        product_id=row["product_id"],
-        source_url=row.get("source_url"),
-        quantity=int(row.get("quantity") or 1),
-        selected_option=row.get("selected_option"),
-        note=row.get("note"),
-        created_at=_parse_datetime(row["created_at"]),
-    )
+    return _cart_item_from_row(rows[0])
 
 
 def get_cart_items(user_id: str, cart_item_ids: list[str]) -> list[dict]:
@@ -210,7 +272,7 @@ def get_cart_items(user_id: str, cart_item_ids: list[str]) -> list[dict]:
     in_clause = ",".join(cart_item_ids)
     return select_rows(
         "cart_items",
-        columns="id,user_id,product_id,source_url,quantity,selected_option,note",
+        columns=CART_ITEM_COLUMNS,
         filters={
             "user_id": f"eq.{user_id}",
             "id": f"in.({in_clause})",
@@ -271,7 +333,7 @@ def create_order(
     total_amount = 0.0
 
     for cart_item in cart_items:
-        product = products_by_cart_product_id.get(str(cart_item["product_id"]))
+        product = product_from_cart_snapshot(cart_item) or products_by_cart_product_id.get(str(cart_item["product_id"]))
         if product is None:
             continue
 

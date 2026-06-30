@@ -4,14 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { addCartItem } from "@/lib/api";
+import type { Product } from "@/lib/mock-data";
 
 type Props = {
-  productId: string;
-  sourceUrl?: string | null;
+  product: Product;
   className?: string;
 };
 
-export function AddToCartButton({ productId, sourceUrl = null, className = "cta" }: Props) {
+export function AddToCartButton({ product, className = "cta" }: Props) {
   const router = useRouter();
   const { token, isAuthenticated } = useAuth();
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -26,7 +26,17 @@ export function AddToCartButton({ productId, sourceUrl = null, className = "cta"
     setError("");
     setStatus("saving");
     try {
-      await addCartItem(token, { productId, sourceUrl, quantity: 1 });
+      await addCartItem(token, {
+        productId: product.id,
+        sourceUrl: product.sourceUrl,
+        titleZh: product.titleZh,
+        titleKo: product.titleKo,
+        imageUrl: product.imageUrl,
+        salePriceKrw: product.salePriceKrw,
+        priceCny: product.priceCny,
+        brandKo: product.brandKo,
+        quantity: 1
+      });
       setStatus("saved");
       router.refresh();
     } catch (requestError) {

@@ -281,6 +281,12 @@ function normalizeCartEntry(payload: any): CartEntry {
     userId: payload.userId ?? payload.user_id,
     productId: payload.productId ?? payload.product_id,
     sourceUrl: payload.sourceUrl ?? payload.source_url ?? null,
+    titleZh: payload.titleZh ?? payload.title_zh ?? null,
+    titleKo: payload.titleKo ?? payload.title_ko ?? null,
+    imageUrl: payload.imageUrl ?? payload.image_url ?? null,
+    salePriceKrw: payload.salePriceKrw ?? payload.sale_price_krw ?? null,
+    priceCny: payload.priceCny ?? payload.price_cny ?? null,
+    brandKo: payload.brandKo ?? payload.brand_ko ?? null,
     quantity: payload.quantity ?? 1,
     selectedOption: payload.selectedOption ?? payload.selected_option ?? null,
     note: payload.note ?? null,
@@ -618,7 +624,19 @@ export async function updateCartItem(
 
 export async function addCartItem(
   token: string,
-  payload: { productId: string; sourceUrl?: string | null; quantity?: number; selectedOption?: string; note?: string }
+  payload: {
+    productId: string;
+    sourceUrl?: string | null;
+    titleZh?: string | null;
+    titleKo?: string | null;
+    imageUrl?: string | null;
+    salePriceKrw?: number | null;
+    priceCny?: number | null;
+    brandKo?: string | null;
+    quantity?: number;
+    selectedOption?: string;
+    note?: string;
+  }
 ): Promise<{ success: boolean; cartItemId: string }> {
   const result = await authFetch<any>("/api/cart/items", {
     method: "POST",
@@ -628,6 +646,12 @@ export async function addCartItem(
     body: JSON.stringify({
       product_id: payload.productId,
       source_url: payload.sourceUrl ?? null,
+      title_zh: payload.titleZh ?? null,
+      title_ko: payload.titleKo ?? null,
+      image_url: payload.imageUrl ?? null,
+      sale_price_krw: payload.salePriceKrw ?? null,
+      price_cny: payload.priceCny ?? null,
+      brand_ko: payload.brandKo ?? null,
       quantity: payload.quantity ?? 1,
       selected_option: payload.selectedOption,
       note: payload.note

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,11 +22,12 @@ OLIVE_YOUNG_DETAIL_URL = "https://www.oliveyoung.co.kr/store/goods/getGoodsDetai
 PRODUCT_LINK_SELECTOR = "a[href*='getGoodsDetail.do'][href*='goodsNo=']"
 DETAIL_META_READY_SELECTOR = 'meta[property="eg:itemName"]'
 CACHE_TTL_SECONDS = 900
+STALE_CACHE_TTL_SECONDS = 3600
 FALLBACK_RECOMMENDATION_LIMIT = 6
 DEFAULT_PAGE_SIZE = 24
 DEFAULT_SORT = "ranking"
 MAX_PAGE_SIZE = 60
-PAGE_READY_TIMEOUT_SECONDS = 60
+PAGE_READY_TIMEOUT_SECONDS = 10
 PAGE_READY_POLL_SECONDS = 1
 
 SOURCE_LIVE_SEARCH = "live_search"
@@ -54,6 +56,11 @@ _home_cache: CacheEntry | None = None
 _search_cache: dict[str, CacheEntry] = {}
 _detail_cache: dict[str, CacheEntry] = {}
 _last_page_fetch_debug: dict[str, object] = {}
+_search_refreshing_keys: set[str] = set()
+_search_refresh_lock = threading.Lock()
+_playwright_lock = threading.Lock()
+_playwright_thread_state = threading.local()
+_playwright_states: list[tuple[object, object]] = []
 
 
 def _utcnow() -> datetime:
@@ -326,6 +333,12 @@ def _is_cache_fresh(entry: CacheEntry | None) -> bool:
     return (time.time() - entry.fetched_at.timestamp()) < CACHE_TTL_SECONDS
 
 
+def _is_cache_usable_stale(entry: CacheEntry | None) -> bool:
+    if entry is None or not entry.products:
+        return False
+    return (time.time() - entry.fetched_at.timestamp()) < STALE_CACHE_TTL_SECONDS
+
+
 def _html_has_product_signal(html: str) -> bool:
     # 用多个商品特征判断页面是否可解析，减少因单个选择器变化导致的误判。
     signals = (
@@ -363,6 +376,64 @@ def get_last_page_fetch_debug() -> dict[str, object]:
     return dict(_last_page_fetch_debug)
 
 
+def _build_playwright_launch_options() -> dict[str, object]:
+    launch_options: dict[str, object] = {
+        "headless": True,
+        "args": [
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ],
+    }
+
+    proxy = _playwright_proxy_config()
+    if proxy:
+        launch_options["proxy"] = proxy
+
+    return launch_options
+
+
+def _get_playwright_browser():
+    browser = getattr(_playwright_thread_state, "browser", None)
+    if browser is not None and browser.is_connected():
+        return browser
+
+    from playwright.sync_api import sync_playwright
+    from playwright_stealth import Stealth
+
+    playwright = sync_playwright().start()
+    stealth = Stealth()
+    browser = playwright.chromium.launch(**_build_playwright_launch_options())
+    _playwright_thread_state.playwright = playwright
+    _playwright_thread_state.browser = browser
+    _playwright_thread_state.stealth = stealth
+    _playwright_states.append((playwright, browser))
+    return browser
+
+
+def close_playwright_browser() -> None:
+    global _playwright_states
+
+    with _playwright_lock:
+        states = list(_playwright_states)
+        _playwright_states = []
+
+        for playwright, browser in states:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+            try:
+                playwright.stop()
+            except Exception:
+                pass
+
+        for attr in ("playwright", "browser", "stealth"):
+            if hasattr(_playwright_thread_state, attr):
+                delattr(_playwright_thread_state, attr)
+
+
 def _fetch_page_html(
     url: str,
     ready_selector: str | None = PRODUCT_LINK_SELECTOR,
@@ -370,27 +441,9 @@ def _fetch_page_html(
     scroll_steps: int = 3,
 ) -> str:
     # diagnostics 和正式搜索共用这套等待逻辑，保证排查结果能反映真实接口行为。
-    from playwright.sync_api import sync_playwright
-    from playwright_stealth import Stealth
-
-    with Stealth().use_sync(sync_playwright()) as playwright:
-        launch_options: dict[str, object] = {
-            "headless": True,
-            "args": [
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
-        }
-
-        proxy = _playwright_proxy_config()
-        if proxy:
-            launch_options["proxy"] = proxy
-
-        browser = playwright.chromium.launch(**launch_options)
-
-        try:
-            page = browser.new_page(
+    with _playwright_lock:
+        browser = _get_playwright_browser()
+        context = browser.new_context(
                 locale="ko-KR",
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -400,6 +453,12 @@ def _fetch_page_html(
                 viewport={"width": 1440, "height": 2200},
             )
 
+        stealth = getattr(_playwright_thread_state, "stealth", None)
+        if stealth is not None:
+            stealth.apply_stealth_sync(context)
+
+        try:
+            page = context.new_page()
             started_at = time.time()
 
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -451,7 +510,7 @@ def _fetch_page_html(
             return final_html
 
         finally:
-            browser.close()
+            context.close()
 
 def _fetch_main_page_html() -> str:
     return _fetch_page_html(OLIVE_YOUNG_MAIN_URL)
@@ -785,10 +844,52 @@ def _get_search_entry(
     if _is_cache_fresh(cached_entry) and cached_entry is not None and cached_entry.products:
         return cached_entry, True
 
+    if _is_cache_usable_stale(cached_entry) and cached_entry is not None:
+        _refresh_search_cache_async(
+            cache_key,
+            keyword_ko,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+        )
+        return cached_entry, True
+
     live_entry = _fetch_live_search_entry(keyword_ko, page=page, page_size=page_size, sort=sort)
     if live_entry.products:
         _search_cache[cache_key] = live_entry
     return live_entry, False
+
+
+def _refresh_search_cache_async(
+    cache_key: str,
+    keyword_ko: str,
+    *,
+    page: int,
+    page_size: int,
+    sort: str,
+) -> None:
+    with _search_refresh_lock:
+        if cache_key in _search_refreshing_keys:
+            return
+        _search_refreshing_keys.add(cache_key)
+
+    def worker() -> None:
+        try:
+            refreshed_entry = _fetch_live_search_entry(
+                keyword_ko,
+                page=page,
+                page_size=page_size,
+                sort=sort,
+            )
+            if refreshed_entry.products:
+                _search_cache[cache_key] = refreshed_entry
+        except Exception:
+            pass
+        finally:
+            with _search_refresh_lock:
+                _search_refreshing_keys.discard(cache_key)
+
+    threading.Thread(target=worker, name="oliveyoung-search-cache-refresh", daemon=True).start()
 
 
 def _normalize_raw_products(

@@ -91,6 +91,12 @@ class CrawlerSyncResponse(BaseModel):
 class CartItemCreate(BaseModel):
     product_id: str
     source_url: str | None = None
+    title_zh: str | None = None
+    title_ko: str | None = None
+    image_url: str | None = None
+    sale_price_krw: int | None = None
+    price_cny: float | None = None
+    brand_ko: str | None = None
     quantity: int = Field(default=1, ge=1)
     selected_option: str | None = None
     note: str | None = None
@@ -106,6 +112,12 @@ class CartItem(BaseModel):
     user_id: str
     product_id: str
     source_url: str | None = None
+    title_zh: str | None = None
+    title_ko: str | None = None
+    image_url: str | None = None
+    sale_price_krw: int | None = None
+    price_cny: float | None = None
+    brand_ko: str | None = None
     quantity: int
     selected_option: str | None = None
     note: str | None = None

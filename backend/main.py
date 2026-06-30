@@ -1,6 +1,7 @@
-import logging
+﻿import logging
 import os
 import socket
+from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import uuid4
 
@@ -12,7 +13,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from crawler.oliveyoung_product import get_products_by_ids
-from crawler.oliveyoung_search import diagnose_oliveyoung_search, search_products_with_source, sync_oliveyoung_products
+from crawler.oliveyoung_search import (
+    close_playwright_browser,
+    diagnose_oliveyoung_search,
+    search_products_with_source,
+    sync_oliveyoung_products,
+)
 from db.supabase_client import get_supabase_settings
 from schemas import (
     AdminOrder,
@@ -46,6 +52,7 @@ from services.llm_translate_service import translate_texts
 from services.auth_service import get_user_by_token, login_user, logout_user, register_user, reset_user_password
 from services.order_service import (
     add_cart_item,
+    cart_item_has_product_snapshot,
     create_order,
     delete_cart_item,
     delete_order,
@@ -54,6 +61,7 @@ from services.order_service import (
     list_cart_items,
     list_admin_orders,
     list_orders,
+    product_from_cart_snapshot,
     update_admin_order,
     update_cart_item,
 )
@@ -74,7 +82,7 @@ def _is_port_available(host: str, port: int) -> bool:
 
 
 def _resolve_run_port(host: str, preferred_port: int, search_limit: int = 20) -> int:
-    # 本地开发可自动寻找空闲端口；生产环境建议固定端口并由 Nginx 反代。
+    # Local debugging may choose an available fallback port; production should keep a fixed port behind Nginx.
     if _is_port_available(host, preferred_port):
         return preferred_port
 
@@ -91,23 +99,8 @@ def _resolve_run_port(host: str, preferred_port: int, search_limit: int = 20) ->
     )
 
 
-app = FastAPI(title=settings.app_name, version=settings.app_version)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=not settings.allow_all_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-if not settings.allow_all_hosts:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
-
-
 def _build_readiness_response() -> ReadinessResponse:
-    # readiness 用于宝塔/Nginx 部署后快速确认关键外部依赖是否配置齐全。
+    # Readiness helps deployment checks confirm that external dependencies are configured.
     supabase = get_supabase_settings()
     deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
     checks = [
@@ -150,7 +143,6 @@ def _build_readiness_response() -> ReadinessResponse:
     )
 
 
-@app.on_event("startup")
 def log_startup_configuration() -> None:
     logger.info(
         "Starting %s env=%s host=%s port=%s reload=%s trusted_hosts=%s allowed_origins=%s",
@@ -162,6 +154,31 @@ def log_startup_configuration() -> None:
         settings.trusted_hosts,
         settings.allowed_origins,
     )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ = app
+    log_startup_configuration()
+    try:
+        yield
+    finally:
+        close_playwright_browser()
+
+
+app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=not settings.allow_all_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+if not settings.allow_all_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -177,7 +194,7 @@ def readiness():
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> UserPublic:
-    # 所有需要登录的接口统一走 Bearer token，避免每个路由重复解析 Authorization。
+    # Authenticated endpoints share one Bearer-token parser.
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header is required")
     scheme, _, token = authorization.partition(" ")
@@ -187,7 +204,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> UserPu
 
 
 def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
-    # 后台订单接口必须二次校验角色，不能只依赖前端隐藏入口。
+    # Admin endpoints verify role server-side, independent of frontend visibility.
     if user.role not in {"admin", "super_admin"}:
         raise HTTPException(status_code=403, detail="Admin permission is required")
     return user
@@ -246,7 +263,7 @@ async def oliveyoung_search(
     page_size: int = 24,
     sort: str = "ranking",
 ) -> SearchResponse:
-    # Playwright 抓取是同步阻塞操作，放到线程池中执行，避免卡住 FastAPI 事件循环。
+    # Playwright crawling is synchronous, so run it in a thread to keep the event loop responsive.
     return await run_in_threadpool(search_products_with_source, q, page=page, page_size=page_size, sort=sort)
 
 
@@ -294,6 +311,12 @@ def create_cart_item(payload: CartItemCreate, user: UserPublic = Depends(get_cur
         user.id,
         payload.product_id,
         payload.source_url,
+        payload.title_zh,
+        payload.title_ko,
+        payload.image_url,
+        payload.sale_price_krw,
+        payload.price_cny,
+        payload.brand_ko,
         payload.quantity,
         payload.selected_option,
         payload.note,
@@ -308,14 +331,25 @@ def cart_items(user: UserPublic = Depends(get_current_user)) -> list[CartItem]:
 
 @app.get("/api/cart/items/display", response_model=list[CartDisplayItem])
 def cart_display_items(user: UserPublic = Depends(get_current_user)) -> list[CartDisplayItem]:
-    # 给购物车页面一次性返回商品展示快照，避免前端 N+1 请求逐个查商品详情。
     items = list_cart_items(user.id)
-    products_by_id = get_products_by_ids([item.product_id for item in items])
-    return [
+    display_items: list[CartDisplayItem] = []
+    legacy_product_ids: list[str] = []
+
+    for item in items:
+        snapshot_product = product_from_cart_snapshot(item)
+        if snapshot_product is not None:
+            display_items.append(CartDisplayItem(**item.model_dump(), product=snapshot_product))
+        else:
+            legacy_product_ids.append(item.product_id)
+
+    products_by_id = get_products_by_ids(legacy_product_ids) if legacy_product_ids else {}
+    display_items.extend(
         CartDisplayItem(**item.model_dump(), product=products_by_id[item.product_id])
         for item in items
-        if item.product_id in products_by_id
-    ]
+        if item.product_id in products_by_id and product_from_cart_snapshot(item) is None
+    )
+    return display_items
+
 
 
 @app.patch("/api/cart/items/{cart_item_id}", response_model=CartItem)
@@ -385,14 +419,19 @@ def remove_order(order_id: str, user: UserPublic = Depends(get_current_user)) ->
 
 @app.post("/api/orders", response_model=OrderResponse)
 def create_proxy_order(payload: OrderCreate, user: UserPublic = Depends(get_current_user)) -> OrderResponse:
-    # 下单前批量解析购物车商品，任一商品无法解析就阻止创建半成品订单。
+    # Resolve cart products before order creation so failed lookups do not create partial orders.
     cart_items = get_cart_items(user.id, payload.cart_item_ids)
     if not cart_items:
         raise HTTPException(status_code=400, detail="No valid cart items selected")
 
-    products_by_id = get_products_by_ids([item["product_id"] for item in cart_items])
+    legacy_product_ids = [item["product_id"] for item in cart_items if not cart_item_has_product_snapshot(item)]
+    products_by_id = get_products_by_ids(legacy_product_ids) if legacy_product_ids else {}
 
-    unresolved_product_ids = [item["product_id"] for item in cart_items if item["product_id"] not in products_by_id]
+    unresolved_product_ids = [
+        item["product_id"]
+        for item in cart_items
+        if not cart_item_has_product_snapshot(item) and item["product_id"] not in products_by_id
+    ]
     if unresolved_product_ids:
         raise HTTPException(status_code=400, detail="Selected cart items could not be resolved to products")
 

@@ -70,3 +70,47 @@ def test_create_order_uses_cart_product_id_mapping(monkeypatch) -> None:
     assert inserted["order_items"][0]["product_id"] == "oy-A000000000001"
     assert inserted["order_items"][0]["source_url"] == "https://example.com/cart-source"
     assert deleted["cart_items"] == {"user_id": "eq.user-1", "id": "in.(cart-1)"}
+
+
+def test_create_order_uses_cart_snapshot_without_product_lookup(monkeypatch) -> None:
+    inserted: dict[str, object] = {}
+
+    def fake_insert_rows(table: str, payload):
+        inserted[table] = payload
+        return payload if isinstance(payload, list) else [payload]
+
+    monkeypatch.setattr(order_service, "insert_rows", fake_insert_rows)
+    monkeypatch.setattr(order_service, "delete_rows", lambda table, filters: [{"id": "cart-1"}])
+
+    payload = OrderCreate(
+        cart_item_ids=["cart-1"],
+        receiver_name="Buyer",
+        receiver_phone="01012345678",
+        receiver_address="Seoul",
+    )
+    cart_items = [
+        {
+            "id": "cart-1",
+            "product_id": "oy-A000000000999",
+            "source_url": "https://example.com/official",
+            "title_zh": "快照商品",
+            "title_ko": "스냅샷 상품",
+            "image_url": "https://example.com/item.jpg",
+            "sale_price_krw": 10000,
+            "price_cny": 53.0,
+            "brand_ko": "브랜드",
+            "quantity": 3,
+            "selected_option": None,
+            "note": "snapshot note",
+        }
+    ]
+
+    order = order_service.create_order(payload, cart_items, {}, "user-1")
+
+    assert order.items[0].product_id == "oy-A000000000999"
+    assert order.items[0].title_zh == "快照商品"
+    assert order.items[0].title_ko == "스냅샷 상품"
+    assert order.items[0].quantity == 3
+    assert order.items[0].unit_price_cny == 53.0
+    assert order.product_total_cny == 159.0
+    assert inserted["order_items"][0]["source_url"] == "https://example.com/official"

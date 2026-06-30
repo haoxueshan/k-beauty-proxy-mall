@@ -80,6 +80,12 @@ export type CartEntry = {
   userId?: string;
   productId: string;
   sourceUrl?: string | null;
+  titleZh?: string | null;
+  titleKo?: string | null;
+  imageUrl?: string | null;
+  salePriceKrw?: number | null;
+  priceCny?: number | null;
+  brandKo?: string | null;
   quantity: number;
   selectedOption?: string | null;
   note?: string | null;

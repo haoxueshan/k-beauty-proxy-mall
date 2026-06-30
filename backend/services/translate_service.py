@@ -10,6 +10,7 @@ from services.llm_translate_service import (
     TranslationBatchResult,
     translate_search_keyword_to_korean,
     translate_texts,
+    translate_texts_fast,
 )
 
 DEFAULT_KEYWORD_MAPPING = {
@@ -145,6 +146,7 @@ TITLE_REPLACEMENTS = {
 }
 
 HANGUL_PATTERN = re.compile(r"[\uac00-\ud7a3]")
+CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 EDGE_PUNCTUATION_PATTERN = re.compile(r"^[\s,，、。.!！?？;；:：/\\|]+|[\s,，、。.!！?？;；:：/\\|]+$")
 BROKEN_INPUT_PATTERN = re.compile(r"^\?+$")
 KEYWORD_DICTIONARY_PATH = Path(
@@ -154,6 +156,173 @@ KEYWORD_DICTIONARY_PATH = Path(
     )
 )
 _keyword_dictionary_lock = threading.Lock()
+
+
+# Search responses return immediately, so this rule fallback must be readable
+# before the background LLM cache finishes. Keep unknown Korean instead of
+# deleting it; losing product terms is worse than showing a mixed title.
+TITLE_TOKEN_REPLACEMENTS = {
+    "올리브영": "Olive Young",
+    "올영": "Olive Young",
+    "올픽": "Olive Young Pick",
+    "증정": "赠品",
+    "사은품": "赠品",
+    "기획": "企划套装",
+    "기획세트": "企划套装",
+    "세트": "套装",
+    "단품": "单品",
+    "본품": "正装",
+    "리필": "替换装",
+    "대용량": "大容量",
+    "한정": "限定",
+    "품절대란": "断货热卖",
+    "단종템부활": "停产款回归",
+    "신상": "新品",
+    "미니브러쉬": "迷你刷",
+    "미니브러시": "迷你刷",
+    "미니브": "迷你刷",
+    "브러쉬": "刷子",
+    "브러시": "刷子",
+    "페이스": "面部",
+    "아이": "眼部",
+    "립": "唇部",
+    "치크": "脸颊",
+    "블러셔": "腮红",
+    "블러쉬": "腮红",
+    "파우더": "粉",
+    "리퀴드": "液体",
+    "크림": "霜",
+    "젤": "凝胶",
+    "밤": "膏",
+    "스틱": "棒",
+    "팔레트": "盘",
+    "쿠션": "气垫",
+    "파운데이션": "粉底液",
+    "컨실러": "遮瑕",
+    "베이스": "妆前",
+    "선크림": "防晒霜",
+    "선케어": "防晒护理",
+    "선스틱": "防晒棒",
+    "토너": "爽肤水",
+    "패드": "棉片",
+    "앰플": "安瓶",
+    "세럼": "精华",
+    "에센스": "精华",
+    "로션": "乳液",
+    "마스크팩": "面膜",
+    "마스크": "面膜",
+    "팩": "面膜",
+    "클렌징": "清洁",
+    "클렌저": "洁面",
+    "폼": "泡沫",
+    "오일": "油",
+    "워터": "水",
+    "샴푸": "洗发水",
+    "트리트먼트": "护理",
+    "바디": "身体",
+    "핸드": "手部",
+    "향수": "香水",
+    "무드레시피": "Mood Recipe",
+    "플러피": "蓬蓬",
+    "페탈": "花瓣",
+    "드롭": "水滴",
+    "글로우": "光泽",
+    "매트": "哑光",
+    "촉촉": "水润",
+    "진정": "舒缓",
+    "수분": "补水",
+    "보습": "保湿",
+    "미백": "美白",
+    "탄력": "弹力",
+    "저자극": "低刺激",
+    "과일스퀴시": "水果捏捏乐",
+    "네이밍": "NAMING",
+}
+
+TITLE_PHRASE_REPLACEMENTS = {
+    "페이스 블러쉬": "面部腮红",
+    "파우더 블러쉬": "粉质腮红",
+    "파우더 블러셔": "粉质腮红",
+    "리퀴드 블러셔": "液体腮红",
+    "페탈 드롭 리퀴드 블러셔": "花瓣水滴液体腮红",
+    "플러피 파우더 블러쉬": "蓬蓬粉质腮红",
+    "무드레시피 페이스 블러쉬": "Mood Recipe 面部腮红",
+    "미니브증정기획": "迷你刷赠品企划",
+    "미니브러쉬증정기획": "迷你刷赠品企划",
+}
+
+
+CLEAN_TITLE_PHRASE_REPLACEMENTS = {
+    "\uc62c\ub9ac\ube0c\uc601\ud53d": "Olive Young Pick",
+    "\uc62c\uc601\ud53d": "Olive Young Pick",
+    "\uc62c\ud53d": "Olive Young Pick",
+    "\ud55c\uc815\uae30\ud68d\uc138\ud2b8": "\u9650\u5b9a\u4f01\u5212\u5957\u88c5",
+    "\ud55c\uc815\uae30\ud68d": "\u9650\u5b9a\u4f01\u5212",
+    "\uae30\ud68d\uc138\ud2b8": "\u4f01\u5212\u5957\u88c5",
+    "\ub2e8\ub3c5\uae30\ud68d": "\u72ec\u5bb6\u4f01\u5212",
+    "\ud488\uc808\ub300\ub780": "\u65ad\u8d27\u70ed\u5356",
+    "\ub2e8\uc885\ud15c\ubd80\ud65c": "\u505c\u4ea7\u6b3e\u56de\u5f52",
+    "\ubbf8\ub2c8\ube0c\ub7ec\uc26c\uc99d\uc815\uae30\ud68d": "\u8ff7\u4f60\u5237\u8d60\u54c1\u4f01\u5212",
+    "\ubbf8\ub2c8\ube0c\uc99d\uc815\uae30\ud68d": "\u8ff7\u4f60\u5237\u8d60\u54c1\u4f01\u5212",
+    "\ubb34\ub4dc\ub808\uc2dc\ud53c \ud398\uc774\uc2a4 \ube14\ub7ec\uc26c": "Mood Recipe \u9762\u90e8\u816e\u7ea2",
+    "\ud398\uc774\uc2a4 \ube14\ub7ec\uc26c": "\u9762\u90e8\u816e\u7ea2",
+    "\ud50c\ub7ec\ud53c \ud30c\uc6b0\ub354 \ube14\ub7ec\uc26c": "\u84ec\u84ec\u7c89\u8d28\u816e\u7ea2",
+    "\ud30c\uc6b0\ub354 \ube14\ub7ec\uc26c": "\u7c89\u8d28\u816e\u7ea2",
+    "\ud30c\uc6b0\ub354 \ube14\ub7ec\uc154": "\u7c89\u8d28\u816e\u7ea2",
+    "\ud398\ud0c8 \ub4dc\ub86d \ub9ac\ud034\ub4dc \ube14\ub7ec\uc154": "\u82b1\u74e3\u6c34\u6ef4\u6db2\u4f53\u816e\u7ea2",
+    "\ub9ac\ud034\ub4dc \ube14\ub7ec\uc154": "\u6db2\u4f53\u816e\u7ea2",
+    "\uacfc\uc77c\uc2a4\ud034\uc2dc": "\u6c34\u679c\u634f\u634f\u4e50",
+    "\uc544\ud1a0\ubca0\ub9ac\uc5b4365": "Atobarrier365",
+    "\uc544\ud1a0\ubca0\ub9ac\uc5b4": "Atobarrier",
+    "\ud53c\ub514\uc54c\uc5d4": "PDRN",
+    "\ud788\uc54c\ub8e8\ub860\uc0b0": "\u900f\u660e\u8d28\u9178",
+    "\ud310\ud1a0\ud150\uc0b0": "\u6cdb\u9187",
+}
+
+
+CLEAN_TITLE_TOKEN_REPLACEMENTS = {
+    "\uc6d4": "\u6708",
+    "\uc704": "\u540d",
+    "\ubc88": "\u53f7",
+    "\uc5b4\uc6cc\uc988": "\u5956\u9879",
+    "\uae30\ud68d": "\u4f01\u5212",
+    "\uc138\ud2b8": "\u5957\u88c5",
+    "\ub2e8\ud488": "\u5355\u54c1",
+    "\uc99d\uc815": "\u8d60\u54c1",
+    "\uc0ac\uc740\ud488": "\u8d60\u54c1",
+    "\uc815\ud488": "\u6b63\u88c5",
+    "\ubcf8\ud488": "\u6b63\u88c5",
+    "\ub9ac\ud544": "\u66ff\u6362\u88c5",
+    "\ub300\uc6a9\ub7c9": "\u5927\u5bb9\u91cf",
+    "\ud55c\uc815": "\u9650\u5b9a",
+    "\ub9e4": "\u7247",
+    "\uac1c": "\u4e2a",
+    "\uc5d0\uc2a4\ud2b8\ub77c": "AESTURA",
+    "\uc544\ub204\uc544": "Anua",
+    "\ub118\ubc84\uc988\uc778": "numbuzin",
+    "\ub124\uc774\ubc0d": "NAMING",
+    "\uc5d0\uc13c\uc2a4": "\u7cbe\u534e",
+    "\uc138\ub7fc": "\u7cbe\u534e",
+    "\uc575\ud50c": "\u5b89\u74f6",
+    "\ud06c\ub9bc": "\u971c",
+    "\uc218\ubd84": "\u8865\u6c34",
+    "\uc9c4\uc815": "\u8212\u7f13",
+    "\ud1a0\ub108": "\u723d\u80a4\u6c34",
+    "\uc2a4\ud0a8\ucf00\uc5b4": "\u62a4\u80a4",
+    "\ud558\uc774\ub4dc\ub85c": "\u6c34\u6da6",
+    "\uae00\ub7ec\uc26c": "\u5149\u6cfd",
+    "\ud53c\ud504": "\u8d60\u54c1",
+    "\ub354\ube14": "\u53cc\u91cd",
+    "\ucea1\uc290": "\u80f6\u56ca",
+    "\ub9c8\uc2a4\ud06c\ud329": "\u9762\u819c",
+    "\ub9c8\uc2a4\ud06c": "\u9762\u819c",
+    "\ud329": "\u9762\u819c",
+    "\ube14\ub7ec\uc26c": "\u816e\u7ea2",
+    "\ube14\ub7ec\uc154": "\u816e\u7ea2",
+    "\ud30c\uc6b0\ub354": "\u7c89",
+    "\ub9ac\ud034\ub4dc": "\u6db2\u4f53",
+    "\ud398\uc774\uc2a4": "\u9762\u90e8",
+}
 
 
 def _normalize_keyword(keyword: str) -> str:
@@ -262,13 +431,60 @@ def category_to_chinese(category_ko: str) -> str:
 
 
 def translate_title_with_rules(title_ko: str) -> str:
-    translated = title_ko.strip()
+    original = " ".join(title_ko.strip().split())
+    translated = original
+    for source, target in sorted(TITLE_PHRASE_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+        translated = translated.replace(source, target)
+    for source, target in sorted(TITLE_TOKEN_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+        translated = translated.replace(source, target)
     for source, target in sorted(TITLE_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
         translated = translated.replace(source, target)
-    translated = re.sub(r"[\uac00-\ud7a3]+", "", translated)
+
+    translated = re.sub(r"(?<=\d)월", "月", translated)
     translated = re.sub(r"\s*([/+])\s*", r"\1", translated)
+    translated = re.sub(r"\[\s*/+\s*\]", "", translated)
+    translated = re.sub(r"\(\s*/+\s*\)", "", translated)
     translated = re.sub(r"\s{2,}", " ", translated)
-    return translated.strip()
+    translated = translated.strip(" -_/|")
+    return translated if _is_usable_title_translation(original, translated) else original
+
+
+def _is_usable_title_translation(original: str, translated: str) -> bool:
+    normalized = translated.strip()
+    if not normalized:
+        return False
+    if normalized in {"[]", "[/]", "(/)", "/", "-", "_"}:
+        return False
+    if HANGUL_PATTERN.search(original) and len(normalized) <= 4 and len(original.strip()) > 8:
+        return False
+    if HANGUL_PATTERN.search(original) and not (CJK_PATTERN.search(normalized) or HANGUL_PATTERN.search(normalized)):
+        return False
+    return True
+
+
+def _translate_title_with_clean_rules(title_ko: str) -> str:
+    original = " ".join(title_ko.strip().split())
+    translated = original
+
+    for source, target in sorted(CLEAN_TITLE_PHRASE_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+        translated = translated.replace(source, target)
+    for source, target in sorted(CLEAN_TITLE_TOKEN_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+        translated = translated.replace(source, target)
+
+    translated = re.sub(r"(\d+)\s*\uc704", lambda match: f"\u7b2c{match.group(1)}\u540d", translated)
+    translated = re.sub(r"(\d+)\s*\ub9e4", lambda match: f"{match.group(1)}\u7247", translated)
+    translated = re.sub(r"(\d+)\s*\uac1c", lambda match: f"{match.group(1)}\u4e2a", translated)
+    translated = re.sub(r"(?<=\d)\s*\uc6d4", "\u6708", translated)
+    translated = re.sub(r"(\d+)\s*\u540d", lambda match: f"\u7b2c{match.group(1)}\u540d", translated)
+    translated = re.sub(r"\s*([/+])\s*", r"\1", translated)
+    translated = re.sub(r"\[\s*/+\s*\]", "", translated)
+    translated = re.sub(r"\(\s*/+\s*\)", "", translated)
+    translated = re.sub(r"\s{2,}", " ", translated)
+    translated = translated.strip(" -_/|")
+    return translated if _is_usable_title_translation(original, translated) else original
+
+
+translate_title_with_rules = _translate_title_with_clean_rules
 
 
 def translate_title_to_chinese(title_ko: str) -> str:
@@ -277,7 +493,7 @@ def translate_title_to_chinese(title_ko: str) -> str:
 
 def translate_titles_to_chinese(titles_ko: list[str]) -> TranslationBatchResult:
     fallback_titles = [translate_title_with_rules(title) for title in titles_ko]
-    return translate_texts(
+    return translate_texts_fast(
         titles_ko,
         source_language="Korean",
         target_language="Simplified Chinese",

@@ -10,9 +10,10 @@ import {
 type Props = {
   product: Product;
   variant?: "primary" | "fallback";
+  priority?: boolean;
 };
 
-export function ProductCard({ product, variant = "primary" }: Props) {
+export function ProductCard({ product, variant = "primary", priority = false }: Props) {
   // 商品卡片面向中文用户：中文标题为主，韩文标题用于核对。
   const metadata = getProductMetadata(product);
   const spec = getProductSpec(product);
@@ -23,7 +24,16 @@ export function ProductCard({ product, variant = "primary" }: Props) {
   return (
     <article className="overflow-hidden rounded-[28px] border border-black/10 bg-white shadow-[0_18px_44px_rgba(29,28,26,0.10)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_54px_rgba(29,28,26,0.14)]">
       <div className="relative aspect-[4/3]">
-        <Image src={product.imageUrl} alt={title.zh} fill className="object-cover" />
+        <Image
+          src={product.imageUrl}
+          alt={title.zh}
+          fill
+          sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"
+          className="object-cover"
+          unoptimized
+          priority={priority}
+          loading={priority ? undefined : "lazy"}
+        />
         <div className="absolute left-4 top-4 flex flex-wrap gap-2">
           <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-semibold shadow-sm">{sourceLabel}</span>
           <span className="rounded-full bg-coral/90 px-3 py-1 text-xs font-semibold text-white shadow-sm">
@@ -39,7 +49,7 @@ export function ProductCard({ product, variant = "primary" }: Props) {
 
       <div className="space-y-4 p-5">
         <div className="space-y-2">
-          <h3 className="text-2xl font-bold leading-snug text-ink">{title.zh}</h3>
+          <h3 className="text-sm font-semibold leading-relaxed text-black/85">{title.zh}</h3>
           {title.ko ? <p className="text-xs leading-relaxed text-black/45">{title.ko}</p> : null}
           <p className="text-sm">
             <span className="subtle">品牌：</span>
@@ -77,7 +87,7 @@ export function ProductCard({ product, variant = "primary" }: Props) {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr]">
-          <AddToCartButton productId={product.id} sourceUrl={product.sourceUrl} className="cta w-full" />
+          <AddToCartButton product={product} className="cta w-full" />
           {product.sourceUrl ? (
             <a href={product.sourceUrl} target="_blank" rel="noreferrer" className="cta ghost w-full">
               官方链接
@@ -101,19 +111,11 @@ function getCardSourceLabel(sourceType?: string, fallback = false) {
 }
 
 function getDisplayTitle(product: Product) {
-  // titleZh 仍含韩文时说明翻译未完成，主标题显示占位文案。
   const titleZh = product.titleZh?.trim();
   const titleKo = product.titleKo?.trim();
-  const displayTitle = titleZh && !hasHangul(titleZh) ? titleZh : "";
 
   return {
-    zh: displayTitle?.trim() || "翻译中",
+    zh: titleZh || "翻译中",
     ko: titleKo || null
   };
 }
-
-function hasHangul(value: string) {
-  return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(value);
-}
-
-

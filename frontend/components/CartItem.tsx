@@ -57,7 +57,7 @@ export function CartItem({
   return (
     <div className="panel flex flex-col gap-4 p-4 md:flex-row">
       <div className="relative h-28 w-full overflow-hidden rounded-2xl md:w-28">
-        <Image src={product.imageUrl} alt={product.titleZh} fill className="object-cover" />
+        <Image src={product.imageUrl} alt={product.titleZh} fill sizes="112px" className="object-cover" unoptimized />
       </div>
       <div className="flex-1 space-y-3">
         <div>

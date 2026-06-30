@@ -22,6 +22,24 @@ create table if not exists admin_auth_sessions (
 alter table if exists cart_items
   add column if not exists source_url text;
 
+alter table if exists cart_items
+  add column if not exists title_zh text;
+
+alter table if exists cart_items
+  add column if not exists title_ko text;
+
+alter table if exists cart_items
+  add column if not exists image_url text;
+
+alter table if exists cart_items
+  add column if not exists sale_price_krw integer;
+
+alter table if exists cart_items
+  add column if not exists price_cny numeric;
+
+alter table if exists cart_items
+  add column if not exists brand_ko text;
+
 alter table if exists order_items
   add column if not exists source_url text;
 
